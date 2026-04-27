@@ -1,7 +1,3 @@
-Built an interactive AR chemistry system using computer vision and hand tracking to simulate atomic interaction and molecule formation in real time, improving engagement and accessibility in STEM learning.
-
-
-README
 # Chem AR Lab
 
 Chem AR Lab is a camera-based augmented reality chemistry sandbox that uses hand tracking to let users interact with atoms and molecules directly through their webcam.
