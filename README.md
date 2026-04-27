@@ -5,8 +5,10 @@ Chem AR Lab is a camera-based augmented reality chemistry sandbox that uses hand
 ## What It Does
 
 - Uses webcam-based hand tracking
+
 NOTE ON Camera Access
-You must allow access for the simulator to function as this app uses your webcam for hand tracking, however the camera feed stays on your device, is used only for real-time interaction, and is not recorded or uploaded.
+You must allow access for the simulator to function as this app uses your webcam for hand tracking, the camera feed stays on your device, is used only for real-time interaction, and is not recorded or uploaded.
+
 - Lets users pinch and drag atoms
 - Supports multiple atoms, including Hydrogen, Oxygen, and Carbon (more in future)
 - Includes a spawn menu for adding atoms
