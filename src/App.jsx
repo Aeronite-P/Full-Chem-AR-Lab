@@ -78,6 +78,12 @@ const WATER_ORB_RADIUS_PX = WATER_ORB_DIAMETER_PX / 2;
 const WATER_HYDROGEN_BOND_RANGE_PX = 120;
 const WATER_HYDROGEN_BOND_TARGET_PX = 96;
 const WATER_HYDROGEN_BOND_MIN_PX = 64;
+const CARBONIC_ACID_REACTION_RANGE_PX = 126;
+const ATOMIC_EXPANSION_TRIGGER_DELTA_PX = 110;
+const ATOMIC_EXPANSION_ENTRY_DURATION_MS = 560;
+const ATOMIC_EXPANSION_COLLAPSE_TRIGGER_DELTA_PX = 90;
+const ATOMIC_EXPANSION_COLLAPSE_ANIMATION_MS = 220;
+const ATOMIC_EXPANSION_MODEL_MAX_SIZE_PX = 520;
 const BASE_ATOM_RADIUS_PX = 24;
 const BASE_ATOM_BOND_HIT_RADIUS_PX = 42;
 const BASE_ATOM_GRAB_RADIUS_PX = 50;
@@ -169,6 +175,130 @@ const createMolecule = ({
   visualMode,
 });
 
+const getClusterParticleOffsets = (count, maxRadiusPx) => {
+  if (count <= 0) {
+    return [];
+  }
+
+  if (count === 1) {
+    return [{ x: 0, y: 0 }];
+  }
+
+  return Array.from({ length: count }, (_, index) => {
+    const progress = index / Math.max(1, count - 1);
+    const radius = Math.sqrt(progress) * maxRadiusPx;
+    const angle = index * 2.399963229728653;
+
+    return {
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
+    };
+  });
+};
+
+const clampValue = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const lerp = (start, end, amount) => start + (end - start) * amount;
+
+const easeOutCubic = (value) => 1 - (1 - value) ** 3;
+
+const clampVectorToRadius = (x, y, maxRadius) => {
+  const distance = Math.hypot(x, y);
+
+  if (distance <= maxRadius || distance === 0) {
+    return { x, y };
+  }
+
+  const scale = maxRadius / distance;
+  return {
+    x: x * scale,
+    y: y * scale,
+  };
+};
+
+const createAtomicExpansionNucleusParticles = (atomType) => {
+  const details = ATOM_DETAILS[atomType];
+
+  if (!details) {
+    return [];
+  }
+
+  return [
+    ...getClusterParticleOffsets(details.atomicNumber, 32).map((offset, index) => ({
+      ...offset,
+      id: `p-${index}`,
+      kind: "proton",
+    })),
+    ...getClusterParticleOffsets(details.neutrons, 30).map((offset, index) => ({
+      x: offset.x + 5,
+      y: offset.y - 4,
+      id: `n-${index}`,
+      kind: "neutron",
+    })),
+  ];
+};
+
+const getAtomicExpansionOverlayMetrics = (viewportWidth, viewportHeight) => {
+  const modelSizePx = Math.max(
+    280,
+    Math.min(
+      viewportWidth * 0.72,
+      viewportHeight * 0.82,
+      ATOMIC_EXPANSION_MODEL_MAX_SIZE_PX
+    )
+  );
+
+  return {
+    centerX: viewportWidth / 2,
+    centerY: viewportHeight / 2,
+    modelSizePx,
+    shellRadiusPx: modelSizePx * 0.34,
+    shellGrabTolerancePx: Math.max(32, modelSizePx * 0.12),
+    nucleusDragRadiusPx: modelSizePx * 0.15,
+    particleGrabRadiusPx: Math.max(24, modelSizePx * 0.065),
+  };
+};
+
+const getAtomicExpansionDisplayState = (
+  atomicExpansionAtom,
+  viewportWidth,
+  viewportHeight,
+  scaledAtomRadiusPx
+) => {
+  const entryProgress = atomicExpansionAtom
+    ? getAtomicExpansionEntryProgress(atomicExpansionAtom)
+    : 0;
+  const entryEase = easeOutCubic(entryProgress);
+  const overlayMetrics = getAtomicExpansionOverlayMetrics(viewportWidth, viewportHeight);
+  const originX = (atomicExpansionAtom?.originPosition?.x ?? 0.5) * viewportWidth;
+  const originY = (atomicExpansionAtom?.originPosition?.y ?? 0.5) * viewportHeight;
+  const targetCenterX = (atomicExpansionAtom?.modelPosition?.x ?? 0.5) * viewportWidth;
+  const targetCenterY = (atomicExpansionAtom?.modelPosition?.y ?? 0.5) * viewportHeight;
+  const startSizePx = Math.max(scaledAtomRadiusPx * 2.6, 60);
+  const modelSizePx = lerp(startSizePx, overlayMetrics.modelSizePx, entryEase);
+
+  return {
+    entryProgress,
+    overlayMetrics,
+    modelCenterX: lerp(originX, targetCenterX, entryEase),
+    modelCenterY: lerp(originY, targetCenterY, entryEase),
+    modelSizePx,
+    particleScale: overlayMetrics.modelSizePx > 0 ? modelSizePx / overlayMetrics.modelSizePx : 1,
+  };
+};
+
+const getAtomicExpansionEntryProgress = (atomicExpansionAtom, now = performance.now()) => {
+  if (!atomicExpansionAtom?.openedAt) {
+    return 1;
+  }
+
+  return clampValue(
+    (now - atomicExpansionAtom.openedAt) / ATOMIC_EXPANSION_ENTRY_DURATION_MS,
+    0,
+    1
+  );
+};
+
 function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -198,7 +328,8 @@ function App() {
   const [selectedAtomIndex, setSelectedAtomIndex] = useState(null);
   const [moleculePrompt, setMoleculePrompt] = useState(null);
   const [bondLimitMessage, setBondLimitMessage] = useState("");
-  const [, setWaterOverlayFrame] = useState(0);
+  const [atomicExpansionAtom, setAtomicExpansionAtom] = useState(null);
+  const [overlayAnimationFrame, setWaterOverlayFrame] = useState(0);
   const [, setPromptedMoleculeCombos] = useState({});
   const deleteModeRef = useRef(false);
   const bondingModeRef = useRef(false);
@@ -210,6 +341,21 @@ function App() {
   const bondLimitMessageTimeoutRef = useRef(null);
   const hoveredMoleculeIdRef = useRef(null);
   const grabbedMoleculeIdsRef = useRef(new Set());
+  const atomicExpansionAtomRef = useRef(null);
+  const atomicExpansionGestureRef = useRef({
+    atomId: null,
+    startDistancePx: 0,
+  });
+  const atomicExpansionCollapseGestureRef = useRef({
+    atomId: null,
+    startDistancePx: 0,
+    currentDistancePx: 0,
+    shellGripActive: false,
+    shellScale: 1,
+    isClosing: false,
+  });
+  const atomicExpansionCollapseTimeoutRef = useRef(null);
+  const atomicExpansionNucleusParticlesRef = useRef([]);
 
   const toggleWaterVisualMode = (moleculeId) => {
     const molecule = moleculesRef.current.find((entry) => entry.id === moleculeId);
@@ -376,6 +522,76 @@ function App() {
     setSelectedAtomIndex(atomIndex);
   };
 
+  const resetAtomicExpansionGesture = () => {
+    atomicExpansionGestureRef.current = {
+      atomId: null,
+      startDistancePx: 0,
+    };
+  };
+
+  const resetAtomicExpansionCollapseGesture = () => {
+    if (atomicExpansionCollapseTimeoutRef.current) {
+      clearTimeout(atomicExpansionCollapseTimeoutRef.current);
+      atomicExpansionCollapseTimeoutRef.current = null;
+    }
+
+    atomicExpansionCollapseGestureRef.current = {
+      atomId: null,
+      startDistancePx: 0,
+      currentDistancePx: 0,
+      shellGripActive: false,
+      shellScale: 1,
+      isClosing: false,
+    };
+  };
+
+  const setAtomicExpansionAtomState = (nextValue) => {
+    if (!nextValue) {
+      atomicExpansionNucleusParticlesRef.current = [];
+      atomicExpansionAtomRef.current = null;
+      setAtomicExpansionAtom(null);
+      return;
+    }
+
+    const nextAtomicExpansionAtom = {
+      ...nextValue,
+      openedAt: nextValue.openedAt ?? performance.now(),
+      originPosition: nextValue.originPosition ?? { x: 0.5, y: 0.5 },
+      modelPosition: nextValue.modelPosition ?? { x: 0.5, y: 0.5 },
+    };
+
+    atomicExpansionNucleusParticlesRef.current = createAtomicExpansionNucleusParticles(
+      nextAtomicExpansionAtom.type
+    );
+    atomicExpansionAtomRef.current = nextAtomicExpansionAtom;
+    setAtomicExpansionAtom(nextAtomicExpansionAtom);
+  };
+
+  const exitAtomicExpansionMode = () => {
+    resetAtomicExpansionGesture();
+    resetAtomicExpansionCollapseGesture();
+    setAtomicExpansionAtomState(null);
+  };
+
+  const beginAtomicExpansionCollapse = () => {
+    const gesture = atomicExpansionCollapseGestureRef.current;
+
+    if (gesture.isClosing) {
+      return;
+    }
+
+    atomicExpansionCollapseGestureRef.current = {
+      ...gesture,
+      shellGripActive: false,
+      shellScale: 0.76,
+      isClosing: true,
+    };
+    atomicExpansionCollapseTimeoutRef.current = window.setTimeout(() => {
+      atomicExpansionCollapseTimeoutRef.current = null;
+      exitAtomicExpansionMode();
+    }, ATOMIC_EXPANSION_COLLAPSE_ANIMATION_MS);
+  };
+
   const getVisualScale = () => atomSizeScaleRef.current;
 
   const getScaledAtomRadiusPx = () => BASE_ATOM_RADIUS_PX * getVisualScale();
@@ -397,6 +613,22 @@ function App() {
 
   const getMoleculeById = (moleculeId) =>
     moleculesRef.current.find((molecule) => molecule.id === moleculeId) ?? null;
+
+  const isCarbonicAcidReactionPairInRange = (waterMolecule, carbonDioxideMolecule) => {
+    const canvas = canvasRef.current;
+
+    if (!canvas || !waterMolecule?.center || !carbonDioxideMolecule?.center) {
+      return false;
+    }
+
+    const distancePx =
+      Math.hypot(
+        waterMolecule.center.x - carbonDioxideMolecule.center.x,
+        waterMolecule.center.y - carbonDioxideMolecule.center.y
+      ) * Math.min(canvas.width, canvas.height);
+
+    return distancePx <= CARBONIC_ACID_REACTION_RANGE_PX;
+  };
 
   const isWaterClusterMolecule = (molecule) => molecule?.formula === "2H2O";
 
@@ -1597,6 +1829,10 @@ function App() {
   };
 
   const handleViewportMouseDown = (event) => {
+    if (atomicExpansionAtomRef.current) {
+      return;
+    }
+
     if (event.target !== viewportRef.current && event.target !== videoRef.current) {
       return;
     }
@@ -1629,6 +1865,11 @@ function App() {
   };
 
   const handleViewportMouseMove = (event) => {
+    if (atomicExpansionAtomRef.current) {
+      hoveredMoleculeIdRef.current = null;
+      return;
+    }
+
     const canvasPoint = getCanvasCoordinatesFromMouseEvent(event);
     const canvas = canvasRef.current;
 
@@ -1685,6 +1926,11 @@ function App() {
   };
 
   const handleViewportMouseUp = (event) => {
+    if (atomicExpansionAtomRef.current) {
+      clearMouseBondDrag();
+      return;
+    }
+
     const mouseBondState = tempBondStateRef.current.mouse;
 
     if (!mouseBondState) {
@@ -1701,11 +1947,21 @@ function App() {
   };
 
   const handleViewportMouseLeave = (event) => {
+    if (atomicExpansionAtomRef.current) {
+      hoveredMoleculeIdRef.current = null;
+      clearMouseBondDrag();
+      return;
+    }
+
     hoveredMoleculeIdRef.current = null;
     handleViewportMouseUp(event);
   };
 
   const handleViewportClick = (event) => {
+    if (atomicExpansionAtomRef.current) {
+      return;
+    }
+
     if (bondingModeRef.current && !deleteModeRef.current) {
       return;
     }
@@ -1809,6 +2065,17 @@ function App() {
   // eslint-disable-next-line react-hooks/refs
   const selectedAtomDetails = selectedAtom ? ATOM_DETAILS[selectedAtom.type] : null;
   // eslint-disable-next-line react-hooks/refs
+  const activeAtomicExpansionAtom = atomicExpansionAtomRef.current ?? atomicExpansionAtom;
+  const atomicExpansionDetails = activeAtomicExpansionAtom
+    ? ATOM_DETAILS[activeAtomicExpansionAtom.type] ?? null
+    : null;
+  // eslint-disable-next-line react-hooks/refs
+  const atomicExpansionNucleusParticles = atomicExpansionDetails
+    ? atomicExpansionNucleusParticlesRef.current
+    : [];
+  // eslint-disable-next-line react-hooks/refs
+  const atomicExpansionCollapseGesture = atomicExpansionCollapseGestureRef.current;
+  // eslint-disable-next-line react-hooks/refs
   const currentWaterToggleMoleculeId = getWaterToggleTargetMoleculeId();
   const currentWaterToggleMolecule =
     currentWaterToggleMoleculeId !== null ? getMoleculeById(currentWaterToggleMoleculeId) : null;
@@ -1822,20 +2089,32 @@ function App() {
     const handStates = {
       Left: {
         isPinching: false,
+        indexTip: null,
         grabbedAtomIndex: null,
         grabbedMoleculeId: null,
         moleculeGrabOffset: null,
         popupPinchHandled: false,
         bondStartAtomId: null,
+        expansionGrabOffset: null,
       },
       Right: {
         isPinching: false,
+        indexTip: null,
         grabbedAtomIndex: null,
         grabbedMoleculeId: null,
         moleculeGrabOffset: null,
         popupPinchHandled: false,
         bondStartAtomId: null,
+        expansionGrabOffset: null,
       },
+    };
+    const resetHandInteractionState = (handState, handLabel) => {
+      handState.grabbedAtomIndex = null;
+      handState.grabbedMoleculeId = null;
+      handState.moleculeGrabOffset = null;
+      handState.popupPinchHandled = false;
+      handState.bondStartAtomId = null;
+      tempBondStateRef.current[handLabel] = null;
     };
     const atomStyles = {
       H: {
@@ -3549,17 +3828,7 @@ function App() {
 
             for (const waterMolecule of waterMolecules) {
               for (const carbonDioxideMolecule of carbonDioxideMolecules) {
-                if (!waterMolecule.center || !carbonDioxideMolecule.center) {
-                  continue;
-                }
-
-                const distancePx =
-                  Math.hypot(
-                    waterMolecule.center.x - carbonDioxideMolecule.center.x,
-                    waterMolecule.center.y - carbonDioxideMolecule.center.y
-                  ) * Math.min(canvas.width, canvas.height);
-
-                if (distancePx > 126) {
+                if (!isCarbonicAcidReactionPairInRange(waterMolecule, carbonDioxideMolecule)) {
                   continue;
                 }
 
@@ -3641,6 +3910,10 @@ function App() {
               if (!waterMolecule || !carbonDioxideMolecule) {
                 setMoleculePromptState(null);
                 return;
+              }
+
+              if (!isCarbonicAcidReactionPairInRange(waterMolecule, carbonDioxideMolecule)) {
+                setMoleculePromptState(null);
               }
               return;
             }
@@ -4330,6 +4603,78 @@ function App() {
               }
             }
 
+            if (handState) {
+              handState.indexTip = pinchDetected && indexTip ? { x: indexTip.x, y: indexTip.y } : null;
+            }
+
+            if (atomicExpansionAtomRef.current && handState) {
+              handState.isPinching = pinchDetected;
+              resetHandInteractionState(handState, handLabel);
+              const expansionAtom = atomicExpansionAtomRef.current;
+              const expansionDisplayState = getAtomicExpansionDisplayState(
+                expansionAtom,
+                canvas.width,
+                canvas.height,
+                getScaledAtomRadiusPx()
+              );
+              const expansionEntryProgress = getAtomicExpansionEntryProgress(
+                expansionAtom,
+                performance.now()
+              );
+
+              if (
+                !pinchDetected ||
+                !indexTip ||
+                atomicExpansionCollapseGestureRef.current.isClosing ||
+                expansionEntryProgress < 0.82
+              ) {
+                handState.expansionGrabOffset = null;
+                continue;
+              }
+
+              const indexTipScreenX = (1 - indexTip.x) * canvas.width;
+              const indexTipY = indexTip.y * canvas.height;
+              const nucleusHitRadiusPx = Math.max(
+                44,
+                expansionDisplayState.overlayMetrics.nucleusDragRadiusPx *
+                  expansionDisplayState.particleScale
+              );
+
+              if (handState.expansionGrabOffset === null) {
+                const distanceToNucleus = Math.hypot(
+                  indexTipScreenX - expansionDisplayState.modelCenterX,
+                  indexTipY - expansionDisplayState.modelCenterY
+                );
+
+                if (distanceToNucleus <= nucleusHitRadiusPx) {
+                  expansionAtom.openedAt = null;
+                  expansionAtom.originPosition = { ...expansionAtom.modelPosition };
+                  handState.expansionGrabOffset = {
+                    x: 1 - indexTip.x - expansionAtom.modelPosition.x,
+                    y: indexTip.y - expansionAtom.modelPosition.y,
+                  };
+                }
+              }
+
+              if (handState.expansionGrabOffset !== null) {
+                const halfWidth = expansionDisplayState.modelSizePx / (2 * canvas.width);
+                const halfHeight = expansionDisplayState.modelSizePx / (2 * canvas.height);
+
+                expansionAtom.modelPosition = {
+                  x: Math.min(
+                    1 - halfWidth,
+                    Math.max(halfWidth, 1 - indexTip.x - handState.expansionGrabOffset.x)
+                  ),
+                  y: Math.min(
+                    1 - halfHeight,
+                    Math.max(halfHeight, indexTip.y - handState.expansionGrabOffset.y)
+                  ),
+                };
+              }
+
+              continue;
+            }
+
             if (!deleteModeRef.current && handState) {
               if (!pinchDetected) {
                 handState.popupPinchHandled = false;
@@ -4389,8 +4734,9 @@ function App() {
                   const indexTipX = indexTip.x * canvas.width;
                   const indexTipY = indexTip.y * canvas.height;
                   const otherHandLabel = handLabel === "Left" ? "Right" : "Left";
-                  const otherGrabbedAtomIndex = handStates[otherHandLabel].grabbedAtomIndex;
-                  const otherGrabbedMoleculeId = handStates[otherHandLabel].grabbedMoleculeId;
+                  const otherHandState = handStates[otherHandLabel];
+                  const otherGrabbedAtomIndex = otherHandState.grabbedAtomIndex;
+                  const otherGrabbedMoleculeId = otherHandState.grabbedMoleculeId;
                   const otherGrabbedMolecule = otherGrabbedMoleculeId !== null
                     ? getMoleculeById(otherGrabbedMoleculeId)
                     : null;
@@ -4426,26 +4772,45 @@ function App() {
                   }
 
                   if (handState.grabbedAtomIndex === null && handState.grabbedMoleculeId === null) {
-                    handState.grabbedAtomIndex = atomsRef.current.findIndex(
-                      ({ position, moleculeId }, atomIndex) => {
-                        if (atomIndex === otherGrabbedAtomIndex) {
-                          return false;
-                        }
+                    const looseAtomSharedGrabIndex =
+                      otherGrabbedAtomIndex !== null
+                        ? atomsRef.current.findIndex(({ position, moleculeId }, atomIndex) => {
+                            if (atomIndex !== otherGrabbedAtomIndex || moleculeId !== null) {
+                              return false;
+                            }
 
-                        if (moleculeId !== null && occupiedMoleculeIds.has(moleculeId)) {
-                          return false;
-                        }
+                            const atomScreenX = position.x * canvas.width;
+                            const atomScreenY = position.y * canvas.height;
+                            const distanceToAtom = Math.hypot(
+                              indexTipX - atomScreenX,
+                              indexTipY - atomScreenY
+                            );
 
-                        const atomScreenX = position.x * canvas.width;
-                        const atomScreenY = position.y * canvas.height;
-                        const distanceToAtom = Math.hypot(
-                          indexTipX - atomScreenX,
-                          indexTipY - atomScreenY
-                        );
+                            return distanceToAtom <= atomGrabRadius;
+                          })
+                        : -1;
 
-                        return distanceToAtom <= atomGrabRadius;
-                      }
-                    );
+                    handState.grabbedAtomIndex =
+                      looseAtomSharedGrabIndex >= 0
+                        ? looseAtomSharedGrabIndex
+                        : atomsRef.current.findIndex(({ position, moleculeId }, atomIndex) => {
+                            if (atomIndex === otherGrabbedAtomIndex) {
+                              return false;
+                            }
+
+                            if (moleculeId !== null && occupiedMoleculeIds.has(moleculeId)) {
+                              return false;
+                            }
+
+                            const atomScreenX = position.x * canvas.width;
+                            const atomScreenY = position.y * canvas.height;
+                            const distanceToAtom = Math.hypot(
+                              indexTipX - atomScreenX,
+                              indexTipY - atomScreenY
+                            );
+
+                            return distanceToAtom <= atomGrabRadius;
+                          });
 
                     if (handState.grabbedAtomIndex < 0) {
                       handState.grabbedAtomIndex = null;
@@ -4468,8 +4833,11 @@ function App() {
                     }
                   } else if (handState.grabbedAtomIndex !== null) {
                     const grabbedAtom = atomsRef.current[handState.grabbedAtomIndex];
+                    const isSharedLooseAtomGrab =
+                      grabbedAtom?.moleculeId === null &&
+                      otherHandState.grabbedAtomIndex === handState.grabbedAtomIndex;
 
-                    if (grabbedAtom?.moleculeId === null) {
+                    if (grabbedAtom?.moleculeId === null && !isSharedLooseAtomGrab) {
                       atomsRef.current[handState.grabbedAtomIndex] = {
                         ...grabbedAtom,
                         position: clampPosition({
@@ -4516,28 +4884,201 @@ function App() {
             }
           }
 
+          const leftHandState = handStates.Left;
+          const rightHandState = handStates.Right;
+          const leftGrabbedAtom =
+            leftHandState.grabbedAtomIndex !== null
+              ? atomsRef.current[leftHandState.grabbedAtomIndex]
+              : null;
+          const rightGrabbedAtom =
+            rightHandState.grabbedAtomIndex !== null
+              ? atomsRef.current[rightHandState.grabbedAtomIndex]
+              : null;
+          const sharedLooseAtom =
+            !deleteModeRef.current &&
+            !bondingModeRef.current &&
+            !moleculePromptRef.current &&
+            leftHandState.isPinching &&
+            rightHandState.isPinching &&
+            leftHandState.indexTip &&
+            rightHandState.indexTip &&
+            leftGrabbedAtom &&
+            rightGrabbedAtom &&
+            leftGrabbedAtom.id === rightGrabbedAtom.id &&
+            leftGrabbedAtom.moleculeId === null
+              ? leftGrabbedAtom
+              : null;
+
+          if (atomicExpansionAtomRef.current) {
+            const leftPinchPoint = leftHandState.isPinching ? leftHandState.indexTip : null;
+            const rightPinchPoint = rightHandState.isPinching ? rightHandState.indexTip : null;
+            const collapseGesture = atomicExpansionCollapseGestureRef.current;
+            const expansionEntryProgress = getAtomicExpansionEntryProgress(
+              atomicExpansionAtomRef.current,
+              performance.now()
+            );
+            const expansionReadyForCollapse = expansionEntryProgress >= 0.82;
+
+            if (
+              leftPinchPoint &&
+              rightPinchPoint &&
+              !collapseGesture.isClosing &&
+              expansionReadyForCollapse
+            ) {
+              const expansionAtomId = atomicExpansionAtomRef.current.id;
+              const expansionDisplayState = getAtomicExpansionDisplayState(
+                atomicExpansionAtomRef.current,
+                canvas.width,
+                canvas.height,
+                getScaledAtomRadiusPx()
+              );
+              const shellCenter = {
+                x: expansionDisplayState.modelCenterX,
+                y: expansionDisplayState.modelCenterY,
+              };
+              const shellRadius =
+                expansionDisplayState.overlayMetrics.shellRadiusPx *
+                expansionDisplayState.particleScale *
+                atomicExpansionCollapseGestureRef.current.shellScale;
+              const shellTolerance =
+                expansionDisplayState.overlayMetrics.shellGrabTolerancePx *
+                expansionDisplayState.particleScale;
+              const leftPinchX = (1 - leftPinchPoint.x) * canvas.width;
+              const leftPinchY = leftPinchPoint.y * canvas.height;
+              const rightPinchX = (1 - rightPinchPoint.x) * canvas.width;
+              const rightPinchY = rightPinchPoint.y * canvas.height;
+              const toLeft = {
+                x: leftPinchX - shellCenter.x,
+                y: leftPinchY - shellCenter.y,
+              };
+              const toRight = {
+                x: rightPinchX - shellCenter.x,
+                y: rightPinchY - shellCenter.y,
+              };
+              const leftRadius = Math.hypot(toLeft.x, toLeft.y);
+              const rightRadius = Math.hypot(toRight.x, toRight.y);
+              const leftNearShell = Math.abs(leftRadius - shellRadius) <= shellTolerance;
+              const rightNearShell = Math.abs(rightRadius - shellRadius) <= shellTolerance;
+              const leftMagnitude = Math.max(leftRadius, 0.0001);
+              const rightMagnitude = Math.max(rightRadius, 0.0001);
+              const oppositeAlignment =
+                ((toLeft.x / leftMagnitude) * (toRight.x / rightMagnitude) +
+                  (toLeft.y / leftMagnitude) * (toRight.y / rightMagnitude)) <= -0.55;
+              const fingertipDistancePx = Math.hypot(
+                leftPinchX - rightPinchX,
+                leftPinchY - rightPinchY
+              );
+
+              if (
+                collapseGesture.atomId !== expansionAtomId ||
+                !collapseGesture.shellGripActive ||
+                !leftNearShell ||
+                !rightNearShell ||
+                !oppositeAlignment
+              ) {
+                atomicExpansionCollapseGestureRef.current = {
+                  atomId: expansionAtomId,
+                  startDistancePx: fingertipDistancePx,
+                  currentDistancePx: fingertipDistancePx,
+                  shellGripActive: leftNearShell && rightNearShell && oppositeAlignment,
+                  shellScale: 1,
+                  isClosing: false,
+                };
+              } else {
+                const inwardDeltaPx = collapseGesture.startDistancePx - fingertipDistancePx;
+                const progress = Math.max(
+                  0,
+                  Math.min(1, inwardDeltaPx / ATOMIC_EXPANSION_COLLAPSE_TRIGGER_DELTA_PX)
+                );
+
+                atomicExpansionCollapseGestureRef.current = {
+                  ...collapseGesture,
+                  currentDistancePx: fingertipDistancePx,
+                  shellGripActive: true,
+                  shellScale: 1 - progress * 0.1,
+                };
+
+                if (inwardDeltaPx >= ATOMIC_EXPANSION_COLLAPSE_TRIGGER_DELTA_PX) {
+                  beginAtomicExpansionCollapse();
+                }
+              }
+            } else if (!collapseGesture.isClosing) {
+              atomicExpansionCollapseGestureRef.current = {
+                ...collapseGesture,
+                startDistancePx: 0,
+                currentDistancePx: 0,
+                shellGripActive: false,
+                shellScale: 1,
+              };
+            }
+          } else if (sharedLooseAtom) {
+            const fingertipDistancePx = Math.hypot(
+              (leftHandState.indexTip.x - rightHandState.indexTip.x) * canvas.width,
+              (leftHandState.indexTip.y - rightHandState.indexTip.y) * canvas.height
+            );
+            const gesture = atomicExpansionGestureRef.current;
+
+            if (gesture.atomId !== sharedLooseAtom.id) {
+              atomicExpansionGestureRef.current = {
+                atomId: sharedLooseAtom.id,
+                startDistancePx: fingertipDistancePx,
+              };
+            } else {
+              gesture.startDistancePx = Math.min(gesture.startDistancePx, fingertipDistancePx);
+
+              if (fingertipDistancePx - gesture.startDistancePx >= ATOMIC_EXPANSION_TRIGGER_DELTA_PX) {
+                setAtomicExpansionAtomState({
+                  id: sharedLooseAtom.id,
+                  type: sharedLooseAtom.type,
+                  originPosition: { ...sharedLooseAtom.position },
+                  openedAt: performance.now(),
+                });
+                resetAtomicExpansionGesture();
+                resetAtomicExpansionCollapseGesture();
+                handStates.Left.isPinching = false;
+                handStates.Left.indexTip = null;
+                resetHandInteractionState(handStates.Left, "Left");
+                handStates.Left.expansionGrabOffset = null;
+                handStates.Right.isPinching = false;
+                handStates.Right.indexTip = null;
+                resetHandInteractionState(handStates.Right, "Right");
+                handStates.Right.expansionGrabOffset = null;
+              }
+            }
+          } else {
+            resetAtomicExpansionGesture();
+            resetAtomicExpansionCollapseGesture();
+          }
+
           if (deleteModeRef.current) {
             handStates.Left.isPinching = false;
+            handStates.Left.indexTip = null;
             handStates.Left.grabbedAtomIndex = null;
             handStates.Left.grabbedMoleculeId = null;
             handStates.Left.moleculeGrabOffset = null;
             handStates.Left.bondStartAtomId = null;
+            handStates.Left.expansionGrabOffset = null;
             handStates.Right.isPinching = false;
+            handStates.Right.indexTip = null;
             handStates.Right.grabbedAtomIndex = null;
             handStates.Right.grabbedMoleculeId = null;
             handStates.Right.moleculeGrabOffset = null;
             handStates.Right.bondStartAtomId = null;
+            handStates.Right.expansionGrabOffset = null;
             tempBondStateRef.current.Left = null;
             tempBondStateRef.current.Right = null;
+            resetAtomicExpansionGesture();
           } else {
             for (const handLabel of ["Left", "Right"]) {
               if (!activeHands.has(handLabel)) {
                 handStates[handLabel].isPinching = false;
+                handStates[handLabel].indexTip = null;
                 handStates[handLabel].grabbedAtomIndex = null;
                 handStates[handLabel].grabbedMoleculeId = null;
                 handStates[handLabel].moleculeGrabOffset = null;
                 handStates[handLabel].popupPinchHandled = false;
                 handStates[handLabel].bondStartAtomId = null;
+                handStates[handLabel].expansionGrabOffset = null;
                 tempBondStateRef.current[handLabel] = null;
               }
             }
@@ -5031,6 +5572,11 @@ function App() {
         return;
       }
 
+      if (event.key === "Escape" && atomicExpansionAtomRef.current) {
+        exitAtomicExpansionMode();
+        return;
+      }
+
       if (event.key === "m" || event.key === "M") {
         setMenuOpen((current) => !current);
         return;
@@ -5055,6 +5601,10 @@ function App() {
   useEffect(() => () => {
     if (bondLimitMessageTimeoutRef.current) {
       clearTimeout(bondLimitMessageTimeoutRef.current);
+    }
+
+    if (atomicExpansionCollapseTimeoutRef.current) {
+      clearTimeout(atomicExpansionCollapseTimeoutRef.current);
     }
   }, []);
 
@@ -5082,6 +5632,33 @@ function App() {
   );
   // eslint-disable-next-line react-hooks/refs
   const waterOverlayHydrogenBonds = getWaterHydrogenBondData();
+  // eslint-disable-next-line react-hooks/refs
+  const atomicExpansionViewportWidth = viewportRef.current?.clientWidth ?? 0;
+  // eslint-disable-next-line react-hooks/refs
+  const atomicExpansionViewportHeight = viewportRef.current?.clientHeight ?? 0;
+  const atomicExpansionDisplayState = getAtomicExpansionDisplayState(
+    activeAtomicExpansionAtom,
+    atomicExpansionViewportWidth,
+    atomicExpansionViewportHeight,
+    getScaledAtomRadiusPx()
+  );
+  const atomicExpansionEntryProgress = atomicExpansionDisplayState.entryProgress;
+  const atomicExpansionModelCenterX = atomicExpansionDisplayState.modelCenterX;
+  const atomicExpansionModelCenterY = atomicExpansionDisplayState.modelCenterY;
+  const atomicExpansionModelSizePx = atomicExpansionDisplayState.modelSizePx;
+  const atomicExpansionParticleScale = atomicExpansionDisplayState.particleScale;
+  const atomicExpansionContentOpacity = clampValue((atomicExpansionEntryProgress - 0.12) / 0.7, 0, 1);
+  const atomicExpansionInfoOpacity = clampValue((atomicExpansionEntryProgress - 0.22) / 0.48, 0, 1);
+  const atomicExpansionShellScale = atomicExpansionCollapseGesture.isClosing
+    ? atomicExpansionCollapseGesture.shellScale
+    : atomicExpansionCollapseGesture.shellGripActive
+      ? atomicExpansionCollapseGesture.shellScale
+      : 1;
+  const atomicExpansionShellGlow = atomicExpansionCollapseGesture.isClosing
+    ? 0.8
+    : atomicExpansionCollapseGesture.shellGripActive
+      ? 1
+      : 0;
 
   return (
     <div
@@ -5108,6 +5685,11 @@ function App() {
           0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.92; }
           50% { transform: translate3d(4%, 3%, 0) scale(1.06); opacity: 1; }
           100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.92; }
+        }
+
+        @keyframes atomicElectronOrbit {
+          0% { transform: translate(-50%, -50%) rotate(0deg); }
+          100% { transform: translate(-50%, -50%) rotate(360deg); }
         }
 
         .app-shell {
@@ -5608,7 +6190,7 @@ function App() {
             >
               <div style={{ fontSize: "clamp(13px, 1.8vw, 15px)", fontWeight: 700 }}>
               {moleculePrompt.kind === "reaction" && moleculePrompt.type === "carbonicAcid"
-                ? "React water and carbon dioxide into carbonic acid (H2CO3)?"
+                ? "Form carbonic acid (H2CO3)?"
                 : moleculePrompt.kind === "cluster" && moleculePrompt.type === "waterDimer"
                 ? "Would you like to form 2H2O?"
                 : moleculePrompt.type === "hydrogen"
@@ -5820,8 +6402,253 @@ function App() {
             zIndex: 0,
           }}
         />
+      {atomicExpansionDetails ? (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 4,
+            pointerEvents: "none",
+            overflow: "hidden",
+            borderRadius: "12px",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: `${atomicExpansionModelCenterX}px`,
+              top: `${atomicExpansionModelCenterY}px`,
+              width: `${atomicExpansionModelSizePx}px`,
+              height: `${atomicExpansionModelSizePx}px`,
+              transform: `translate(-50%, -50%) scale(${atomicExpansionCollapseGesture.isClosing ? 0.94 : 1})`,
+              opacity: atomicExpansionCollapseGesture.isClosing ? 0.72 : 1,
+              transition: "transform 180ms ease, opacity 180ms ease",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: "-16% -16%",
+                borderRadius: "999px",
+                background:
+                  "radial-gradient(circle at center, rgba(8, 47, 73, 0.12) 0%, rgba(8, 47, 73, 0.08) 36%, rgba(8, 47, 73, 0.02) 54%, rgba(8, 47, 73, 0) 72%)",
+                opacity: atomicExpansionContentOpacity,
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                width: "68%",
+                height: "68%",
+                borderRadius: "999px",
+                border: "2px solid rgba(103, 232, 249, 0.45)",
+                boxShadow:
+                  `0 0 ${28 + atomicExpansionShellGlow * 18}px rgba(34, 211, 238, ${0.14 + atomicExpansionShellGlow * 0.18}), inset 0 0 ${36 + atomicExpansionShellGlow * 16}px rgba(34, 211, 238, ${0.06 + atomicExpansionShellGlow * 0.14})`,
+                opacity:
+                  atomicExpansionContentOpacity *
+                  (atomicExpansionCollapseGesture.isClosing ? 0.5 : 1),
+                transition: "transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease",
+                transform: `translate(-50%, -50%) scale(${atomicExpansionShellScale})`,
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                width: "82%",
+                height: "82%",
+                borderRadius: "999px",
+                border: "1px dashed rgba(148, 163, 184, 0.18)",
+                opacity:
+                  atomicExpansionContentOpacity *
+                  (atomicExpansionCollapseGesture.isClosing ? 0.24 : 1),
+                transition: "transform 180ms ease, opacity 180ms ease",
+                transform: `translate(-50%, -50%) scale(${1 - (1 - atomicExpansionShellScale) * 0.55})`,
+              }}
+            />
+            {Array.from(
+              { length: atomicExpansionDetails.valenceElectrons },
+              (_, index) => {
+                const orbitRadiusPx =
+                  atomicExpansionModelSizePx * 0.34 * atomicExpansionShellScale;
+
+                return (
+                  <div
+                    key={`e-${index}`}
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      top: "50%",
+                      width: 0,
+                      height: 0,
+                      opacity:
+                        atomicExpansionContentOpacity *
+                        (atomicExpansionCollapseGesture.isClosing ? 0.2 : 1),
+                      transform: `translate(-50%, -50%) rotate(${(index / atomicExpansionDetails.valenceElectrons) * 360}deg)`,
+                      animation: "atomicElectronOrbit 6.4s linear infinite",
+                      animationDelay: `${(-6.4 * index) / atomicExpansionDetails.valenceElectrons}s`,
+                      transition: "opacity 180ms ease",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "14px",
+                        height: "14px",
+                        borderRadius: "999px",
+                        transform: `translate(${orbitRadiusPx}px, -7px)`,
+                        background: "#67e8f9",
+                        boxShadow:
+                          "0 0 12px rgba(103, 232, 249, 0.95), 0 0 28px rgba(34, 211, 238, 0.6)",
+                      }}
+                    />
+                  </div>
+                );
+              }
+            )}
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                width: "29%",
+                height: "29%",
+                borderRadius: "999px",
+                background:
+                  "radial-gradient(circle, rgba(255, 255, 255, 0.14) 0%, rgba(148, 163, 184, 0.06) 42%, rgba(15, 23, 42, 0) 75%)",
+                filter: "blur(4px)",
+                opacity:
+                  atomicExpansionContentOpacity *
+                  (atomicExpansionCollapseGesture.isClosing ? 0.32 : 1),
+                transition: "transform 180ms ease, opacity 180ms ease",
+                transform: `translate(-50%, -50%) scale(${1 - (1 - atomicExpansionShellScale) * 0.35})`,
+              }}
+            />
+            {atomicExpansionNucleusParticles.map((particle) => (
+              <div
+                key={particle.id}
+                style={{
+                  position: "absolute",
+                  left: "50%",
+                  top: "50%",
+                  width: particle.kind === "proton" ? "22px" : "20px",
+                  height: particle.kind === "proton" ? "22px" : "20px",
+                  marginLeft: particle.kind === "proton" ? "-11px" : "-10px",
+                  marginTop: particle.kind === "proton" ? "-11px" : "-10px",
+                  borderRadius: "999px",
+                  transform: `translate(${particle.x * atomicExpansionParticleScale}px, ${particle.y * atomicExpansionParticleScale}px)`,
+                  opacity: atomicExpansionContentOpacity,
+                  background:
+                    particle.kind === "proton"
+                      ? "radial-gradient(circle at 32% 28%, #ffd6ea 0%, #fb7185 42%, #e11d48 100%)"
+                      : "radial-gradient(circle at 32% 28%, #dbeafe 0%, #94a3b8 42%, #475569 100%)",
+                  boxShadow:
+                    particle.kind === "proton"
+                      ? "0 0 18px rgba(251, 113, 133, 0.24)"
+                      : "0 0 14px rgba(148, 163, 184, 0.18)",
+                }}
+              />
+            ))}
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                transform: "translate(-50%, -50%)",
+                fontSize: "clamp(14px, 2vw, 18px)",
+                fontWeight: 700,
+                color: "rgba(226, 232, 240, 0.82)",
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                opacity: atomicExpansionContentOpacity * 0.92,
+              }}
+            >
+              Nucleus
+            </div>
           </div>
         </div>
+      ) : null}
+          </div>
+        </div>
+        {atomicExpansionDetails ? (
+          <div
+            aria-hidden="true"
+            style={{
+              width: "min(100%, 620px)",
+              margin: "0 auto",
+              padding: "clamp(12px, 2vw, 16px) clamp(16px, 2.4vw, 22px)",
+              borderRadius: "20px",
+              border: "1px solid rgba(148, 163, 184, 0.2)",
+              background: "rgba(7, 20, 39, 0.48)",
+              backdropFilter: "blur(10px)",
+              boxShadow:
+                "0 14px 30px rgba(2, 6, 23, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.07)",
+              textAlign: "center",
+              opacity: atomicExpansionInfoOpacity,
+            }}
+          >
+            <div
+              style={{
+                fontSize: "clamp(10px, 1.3vw, 11px)",
+                opacity: 0.68,
+                textTransform: "uppercase",
+                letterSpacing: "0.16em",
+              }}
+            >
+              Atomic Expansion Mode
+            </div>
+            <div
+              style={{
+                marginTop: "6px",
+                fontSize: "clamp(22px, 3.5vw, 30px)",
+                fontWeight: 800,
+                lineHeight: 1.1,
+              }}
+            >
+              {atomicExpansionDetails.name}
+            </div>
+            <div
+              style={{
+                marginTop: "4px",
+                fontSize: "clamp(14px, 1.9vw, 18px)",
+                color: "#8be9ff",
+                fontWeight: 700,
+                letterSpacing: "0.14em",
+              }}
+            >
+              {atomicExpansionDetails.symbol}
+            </div>
+            <div
+              style={{
+                marginTop: "12px",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: "clamp(10px, 2vw, 18px)",
+                flexWrap: "wrap",
+                fontSize: "clamp(11px, 1.45vw, 13px)",
+                lineHeight: 1.5,
+                color: "rgba(226, 232, 240, 0.92)",
+              }}
+            >
+              <div>Protons: {atomicExpansionDetails.atomicNumber}</div>
+              <div>Neutrons: {atomicExpansionDetails.neutrons}</div>
+              <div>Electrons: {atomicExpansionDetails.atomicNumber}</div>
+            </div>
+            <div
+              style={{
+                marginTop: "10px",
+                fontSize: "clamp(11px, 1.3vw, 12px)",
+                opacity: 0.72,
+              }}
+            >
+              Press Escape to return
+            </div>
+          </div>
+        ) : null}
       </div>
       </div>
       </div>
