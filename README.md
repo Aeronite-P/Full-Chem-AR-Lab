@@ -1,53 +1,83 @@
 # Chem AR Lab
 
-Chem AR Lab is a camera-based augmented reality chemistry sandbox that uses hand tracking to let users interact with atoms and molecules directly through their webcam.
+**Chem AR Lab** is a camera-based augmented-reality chemistry sandbox. It uses your webcam and hand tracking to let you grab, move, and bond atoms in the air — building real molecules with your hands, no headset or lab equipment required.
 
-## What It Does
+## ▶️ Try it now (no download)
 
-- Uses webcam-based hand tracking
-NOTE ON Camera Access
-You must allow access for the simulator to function as this app uses your webcam for hand tracking, however the camera feed stays on your device, is used only for real-time interaction, and is not recorded or uploaded.
-- Lets users pinch and drag atoms
-- Supports multiple atoms, including Hydrogen, Oxygen, and Carbon (more in future)
-- Includes a spawn menu for adding atoms
-- Includes delete mode
-- Includes bonding mode for creating bonds between atoms
-- Supports simple molecule creation, including H₂O
-- Runs directly in the browser
+**[Launch Chem AR Lab →](https://aeronite-p.github.io/Full-Chem-AR-Lab/)**
 
-## Why I Built This
+Just click the link and it runs in your browser. Your browser will ask for camera permission the first time — that's needed for hand tracking.
 
-I wanted to make chemistry feel more interactive and physical without needing a VR headset or expensive lab equipment. The goal is to help students visualize atoms, bonding, and molecular formation in a hands-on way using only a camera.
+> 🔒 **Camera note:** The app needs webcam access to track your hands. The camera feed stays on your device — it is used only for real-time interaction and is **never recorded or uploaded.** Works best in Chrome on a laptop/desktop with decent lighting.
 
-## Tech Stack
+> 💡 No camera, or hand tracking not cooperating? You can also drag atoms with your **mouse** — every gesture below has a mouse equivalent.
 
-- React
-- Vite
-- JavaScript
-- MediaPipe Hand Tracking
-- CSS / Canvas-based visual overlay
+## What it does
 
-## How to Run Locally
+- **Hand-tracked interaction** — pinch your thumb and finger to grab an atom, move your hand to drag it, release to drop.
+- **Spawn atoms** from a menu: Hydrogen (H), Oxygen (O), Carbon (C), and Nitrogen (N).
+- **Bonding Mode** — draw covalent bonds between atoms (single, double, triple), with realistic bond limits per element.
+- **Build real molecules** — when the right atoms come together the app offers to snap them into a molecule:
+  - Water (H₂O), Hydrogen gas (H₂), Oxygen gas (O₂), Nitrogen gas (N₂)
+  - Carbon monoxide (CO), Carbon dioxide (CO₂)
+  - Ammonia (NH₃), Methane (CH₄)
+- **Hydrogen bonding** — bring two water molecules close and watch the hydrogen bond form (glowing pink), snapping them into a water cluster (2H₂O).
+- **Reactions** — bring water (H₂O) and carbon dioxide (CO₂) together to form carbonic acid (H₂CO₃).
+- **Atom inspector** — select an atom to see its atomic number, valence electrons, and common bond count.
+- **Atomic expansion view** — pull an atom apart to peek inside at its protons, neutrons, and electron shells.
+- **Lone pairs** — toggle on to show lone electron pairs on molecules.
+- **Adjustable atom size** and a water "orb" visual mode for cleaner views.
 
-Install dependencies:
+## Controls & shortcuts
+
+| Action | How |
+|---|---|
+| Open / close the atom menu | **M** key, or the menu button |
+| Toggle Delete Mode | Menu → **Delete Mode** |
+| Toggle Bonding Mode | Menu → **Bonding Mode** |
+| Spawn an atom | Menu → Hydrogen / Oxygen / Carbon / Nitrogen |
+| Grab & move an atom | Pinch over it (or click-drag with mouse) |
+| Inspect an atom | Select it — details appear in the panel |
+| Toggle a water molecule's orb visual | **W** key, or the water toggle button |
+| Exit atomic-expansion view | **Esc** |
+| Show lone pairs | **Show Lone Pairs** toggle |
+
+## Why I built this
+
+I wanted to make chemistry feel physical and interactive — to help people *see* atoms, bonding, and molecule formation in a hands-on way — using nothing but a webcam and a browser.
+
+## Tech stack
+
+- **React 19** + **Vite**
+- **MediaPipe Tasks Vision** (hand landmark tracking)
+- **Canvas** overlay rendering for atoms, bonds, and effects
+
+---
+
+## Running it locally (for developers)
+
+You don't need this to *use* the app — just click the [live link](https://aeronite-p.github.io/Full-Chem-AR-Lab/). This section is only if you want to modify the code.
 
 ```bash
+# clone the repo
+git clone https://github.com/Aeronite-P/Full-Chem-AR-Lab.git
+cd Full-Chem-AR-Lab
+
+# install dependencies
 npm install
 
+# start the dev server (opens at http://localhost:5173)
+npm run dev
+```
 
-# React + Vite
+Other scripts:
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+```bash
+npm run build     # production build into dist/
+npm run preview   # preview the production build locally
+npm run lint      # run ESLint
+```
 
-Currently, two official plugins are available:
+### Deployment
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+The live site is hosted on **GitHub Pages** and deploys automatically: every push to `main` triggers a GitHub Actions workflow (`.github/workflows/deploy.yml`) that builds the app and publishes it. No manual steps needed.
