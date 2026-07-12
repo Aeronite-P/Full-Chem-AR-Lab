@@ -98,6 +98,57 @@ const COVALENT_BOND_ORDER = {
   triple: 3,
 };
 
+// Neon accent color per atom type — used for grab ripples, auras, and bond gradients.
+const ATOM_NEON_COLORS = {
+  H: "#e8f6ff",
+  O: "#ff4d4d",
+  C: "#aeb6c2",
+  N: "#4d7dff",
+  Cl: "#3dff8f",
+  Na: "#c95bff",
+};
+
+const hexToRgb = (hex) => {
+  const normalized = hex.replace("#", "");
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16),
+  };
+};
+
+const rgbToCss = ({ r, g, b }, alpha = 1) =>
+  `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${alpha})`;
+
+const getAtomNeonRgb = (atomType) => hexToRgb(ATOM_NEON_COLORS[atomType] ?? ATOM_NEON_COLORS.C);
+
+// "Mix" the neon colors of a set of atoms (average RGB) — a molecule ripples in
+// the blend of all of its atoms' colors.
+const getMixedNeonRgb = (atomTypes) => {
+  if (!atomTypes || atomTypes.length === 0) {
+    return getAtomNeonRgb("C");
+  }
+
+  const total = atomTypes.reduce(
+    (sum, atomType) => {
+      const rgb = getAtomNeonRgb(atomType);
+      return { r: sum.r + rgb.r, g: sum.g + rgb.g, b: sum.b + rgb.b };
+    },
+    { r: 0, g: 0, b: 0 }
+  );
+
+  return {
+    r: total.r / atomTypes.length,
+    g: total.g / atomTypes.length,
+    b: total.b / atomTypes.length,
+  };
+};
+
+const GRAB_RIPPLE_DURATION_MS = 720;
+const GRAB_RIPPLE_REPEAT_MS = 640;
+const FORMATION_EFFECT_DURATION_MS = 1050;
+const FORMATION_SPARK_COUNT = 14;
+
 const WATER_LAYOUT_OFFSETS_PX = [
   { x: -54, y: -40 },
   { x: 54, y: -40 },
@@ -307,10 +358,9 @@ function App() {
   const noButtonRef = useRef(null);
   const moleculesRef = useRef([]);
   const bondsRef = useRef([]);
+  // Keyed by "mouse" plus one dynamic key per tracked hand ("hand-<id>").
   const tempBondStateRef = useRef({
     mouse: null,
-    Left: null,
-    Right: null,
   });
   const nextAtomIdRef = useRef(3);
   const nextMoleculeIdRef = useRef(1);
@@ -356,6 +406,45 @@ function App() {
   });
   const atomicExpansionCollapseTimeoutRef = useRef(null);
   const atomicExpansionNucleusParticlesRef = useRef([]);
+  // Transient canvas effects (grab ripples, formation bursts). Positions are
+  // normalized canvas coordinates.
+  const effectsRef = useRef([]);
+  // Touch/mouse drag state so atoms and molecules can be moved without hand tracking.
+  const pointerDragRef = useRef(null);
+
+  const spawnGrabRipple = (position, colorRgb, options = {}) => {
+    const { soft = false } = options;
+
+    effectsRef.current = [
+      ...effectsRef.current,
+      {
+        kind: "ripple",
+        x: position.x,
+        y: position.y,
+        color: colorRgb,
+        startedAt: performance.now(),
+        duration: GRAB_RIPPLE_DURATION_MS,
+        soft,
+      },
+    ];
+  };
+
+  const spawnFormationEffect = (position, colorRgb) => {
+    effectsRef.current = [
+      ...effectsRef.current,
+      {
+        kind: "formation",
+        x: position.x,
+        y: position.y,
+        color: colorRgb,
+        startedAt: performance.now(),
+        duration: FORMATION_EFFECT_DURATION_MS,
+      },
+    ];
+  };
+
+  const getMoleculeMixedNeonRgb = (molecule) =>
+    getMixedNeonRgb(getMoleculeAtoms(molecule).map((atom) => atom.type));
 
   const toggleWaterVisualMode = (moleculeId) => {
     const molecule = moleculesRef.current.find((entry) => entry.id === moleculeId);
@@ -590,6 +679,15 @@ function App() {
       atomicExpansionCollapseTimeoutRef.current = null;
       exitAtomicExpansionMode();
     }, ATOMIC_EXPANSION_COLLAPSE_ANIMATION_MS);
+  };
+
+  const clearTempBondsForAtomIds = (atomIdSet) => {
+    tempBondStateRef.current = Object.fromEntries(
+      Object.entries(tempBondStateRef.current).map(([key, tempBond]) => [
+        key,
+        tempBond && atomIdSet.has(tempBond.startAtomId) ? null : tempBond,
+      ])
+    );
   };
 
   const getVisualScale = () => atomSizeScaleRef.current;
@@ -975,6 +1073,8 @@ function App() {
       atomIds.includes(atom.id) ? { ...atom, moleculeId } : atom
     );
 
+    spawnFormationEffect(resolvedCenter, getMixedNeonRgb(promptAtoms.map((atom) => atom.type)));
+
     return moleculeId;
   };
 
@@ -1047,6 +1147,7 @@ function App() {
     ];
 
     setPromptedComboStatus(comboKey, "accepted");
+    spawnFormationEffect(center, getMixedNeonRgb(clusterAtoms.map((atom) => atom.type)));
     return clusterId;
   };
 
@@ -1216,17 +1317,7 @@ function App() {
         const atomIds = getBondAtomIds(bond);
         return !atomIds.some((atomId) => atomIdsToDelete.has(atomId));
       });
-      tempBondStateRef.current = {
-        mouse: atomIdsToDelete.has(tempBondStateRef.current.mouse?.startAtomId)
-          ? null
-          : tempBondStateRef.current.mouse,
-        Left: atomIdsToDelete.has(tempBondStateRef.current.Left?.startAtomId)
-          ? null
-          : tempBondStateRef.current.Left,
-        Right: atomIdsToDelete.has(tempBondStateRef.current.Right?.startAtomId)
-          ? null
-          : tempBondStateRef.current.Right,
-      };
+      clearTempBondsForAtomIds(atomIdsToDelete);
       hoveredMoleculeIdRef.current =
         hoveredMoleculeIdRef.current !== null && moleculeIdsToDelete.has(hoveredMoleculeIdRef.current)
           ? null
@@ -1271,17 +1362,7 @@ function App() {
       const atomIds = getBondAtomIds(bond);
       return !atomIds.some((atomId) => atomIdsToDelete.has(atomId));
     });
-    tempBondStateRef.current = {
-      mouse: atomIdsToDelete.has(tempBondStateRef.current.mouse?.startAtomId)
-        ? null
-        : tempBondStateRef.current.mouse,
-      Left: atomIdsToDelete.has(tempBondStateRef.current.Left?.startAtomId)
-        ? null
-        : tempBondStateRef.current.Left,
-      Right: atomIdsToDelete.has(tempBondStateRef.current.Right?.startAtomId)
-        ? null
-        : tempBondStateRef.current.Right,
-    };
+    clearTempBondsForAtomIds(atomIdsToDelete);
     hoveredMoleculeIdRef.current =
       hoveredMoleculeIdRef.current === moleculeId ? null : hoveredMoleculeIdRef.current;
     grabbedMoleculeIdsRef.current = new Set(
@@ -1306,11 +1387,7 @@ function App() {
       bondingModeRef.current = nextValue;
 
       if (nextValue) {
-        tempBondStateRef.current = {
-          mouse: null,
-          Left: null,
-          Right: null,
-        };
+        tempBondStateRef.current = { mouse: null };
       }
 
       return nextValue;
@@ -1828,7 +1905,41 @@ function App() {
     return createBond(startAtomId, targetAtom.id, { enforceBondLimits: bondingModeRef.current });
   };
 
-  const handleViewportMouseDown = (event) => {
+  const findMoleculeAtCanvasPointForPointer = (canvasX, canvasY) => {
+    const canvas = canvasRef.current;
+
+    if (!canvas) {
+      return null;
+    }
+
+    return (
+      [...moleculesRef.current]
+        .sort((left, right) => {
+          if (left.formula === "2H2O" && right.formula !== "2H2O") {
+            return -1;
+          }
+
+          if (left.formula !== "2H2O" && right.formula === "2H2O") {
+            return 1;
+          }
+
+          return 0;
+        })
+        .find((molecule) => {
+          if (!molecule.center || molecule.radius === undefined) {
+            return false;
+          }
+
+          const centerX = molecule.center.x * canvas.width;
+          const centerY = molecule.center.y * canvas.height;
+          const hitRadius = getMoleculeCanvasHitRadius(molecule, canvas);
+
+          return Math.hypot(canvasX - centerX, canvasY - centerY) <= hitRadius;
+        }) ?? null
+    );
+  };
+
+  const handleViewportPointerDown = (event) => {
     if (atomicExpansionAtomRef.current) {
       return;
     }
@@ -1837,34 +1948,79 @@ function App() {
       return;
     }
 
-    if (!bondingModeRef.current || deleteModeRef.current) {
+    if (deleteModeRef.current) {
       return;
     }
 
     const canvasPoint = getCanvasCoordinatesFromMouseEvent(event);
+    const canvas = canvasRef.current;
 
-    if (!canvasPoint) {
+    if (!canvasPoint || !canvas) {
       return;
     }
 
-    const atomIndex = findAtomIndexAtCanvasPoint(
+    if (bondingModeRef.current) {
+      const atomIndex = findAtomIndexAtCanvasPoint(
+        canvasPoint.x,
+        canvasPoint.y,
+        getScaledAtomBondHitRadiusPx()
+      );
+      const atom = atomIndex >= 0 ? atomsRef.current[atomIndex] : null;
+
+      if (!atom) {
+        return;
+      }
+
+      tempBondStateRef.current.mouse = {
+        startAtomId: atom.id,
+        currentPosition: canvasPoint,
+      };
+      return;
+    }
+
+    // Touch/mouse grab: loose atoms drag directly, atoms in a molecule drag the molecule.
+    const normalizedPoint = {
+      x: canvasPoint.x / canvas.width,
+      y: canvasPoint.y / canvas.height,
+    };
+    const grabbedAtomIndex = findAtomIndexAtCanvasPoint(
       canvasPoint.x,
       canvasPoint.y,
-      getScaledAtomBondHitRadiusPx()
+      getScaledAtomGrabRadiusPx()
     );
-    const atom = atomIndex >= 0 ? atomsRef.current[atomIndex] : null;
+    const grabbedAtom = grabbedAtomIndex >= 0 ? atomsRef.current[grabbedAtomIndex] : null;
 
-    if (!atom) {
+    if (grabbedAtom && grabbedAtom.moleculeId === null) {
+      pointerDragRef.current = {
+        kind: "atom",
+        atomId: grabbedAtom.id,
+        position: normalizedPoint,
+        lastRippleAt: performance.now(),
+      };
+      spawnGrabRipple(grabbedAtom.position, getAtomNeonRgb(grabbedAtom.type));
       return;
     }
 
-    tempBondStateRef.current.mouse = {
-      startAtomId: atom.id,
-      currentPosition: canvasPoint,
-    };
+    const grabbedMolecule = grabbedAtom
+      ? getClusterForMemberMoleculeId(grabbedAtom.moleculeId) ?? getMoleculeById(grabbedAtom.moleculeId)
+      : findMoleculeAtCanvasPointForPointer(canvasPoint.x, canvasPoint.y);
+
+    if (grabbedMolecule?.center) {
+      pointerDragRef.current = {
+        kind: "molecule",
+        moleculeId: grabbedMolecule.id,
+        grabOffset: {
+          x: normalizedPoint.x - grabbedMolecule.center.x,
+          y: normalizedPoint.y - grabbedMolecule.center.y,
+        },
+        position: normalizedPoint,
+        lastRippleAt: performance.now(),
+      };
+      spawnGrabRipple(grabbedMolecule.center, getMoleculeMixedNeonRgb(grabbedMolecule));
+    }
   };
 
-  const handleViewportMouseMove = (event) => {
+  const handleViewportPointerMove = (event) => {
     if (atomicExpansionAtomRef.current) {
       hoveredMoleculeIdRef.current = null;
       return;
@@ -1907,6 +2063,16 @@ function App() {
       hoveredMoleculeIdRef.current = null;
     }
 
+    if (canvasPoint && canvas && pointerDragRef.current) {
+      pointerDragRef.current = {
+        ...pointerDragRef.current,
+        position: {
+          x: canvasPoint.x / canvas.width,
+          y: canvasPoint.y / canvas.height,
+        },
+      };
+    }
+
     if (!tempBondStateRef.current.mouse) {
       return;
     }
@@ -1923,9 +2089,12 @@ function App() {
 
   const clearMouseBondDrag = () => {
     tempBondStateRef.current.mouse = null;
+    pointerDragRef.current = null;
   };
 
-  const handleViewportMouseUp = (event) => {
+  const handleViewportPointerUp = (event) => {
+    pointerDragRef.current = null;
+
     if (atomicExpansionAtomRef.current) {
       clearMouseBondDrag();
       return;
@@ -1946,7 +2115,7 @@ function App() {
     clearMouseBondDrag();
   };
 
-  const handleViewportMouseLeave = (event) => {
+  const handleViewportPointerLeave = (event) => {
     if (atomicExpansionAtomRef.current) {
       hoveredMoleculeIdRef.current = null;
       clearMouseBondDrag();
@@ -1954,7 +2123,7 @@ function App() {
     }
 
     hoveredMoleculeIdRef.current = null;
-    handleViewportMouseUp(event);
+    handleViewportPointerUp(event);
   };
 
   const handleViewportClick = (event) => {
@@ -2000,17 +2169,7 @@ function App() {
           const atomIds = getBondAtomIds(bond);
           return !atomIds.includes(atomToDelete.id);
         });
-        tempBondStateRef.current = {
-          mouse: tempBondStateRef.current.mouse?.startAtomId === atomToDelete.id
-            ? null
-            : tempBondStateRef.current.mouse,
-          Left: tempBondStateRef.current.Left?.startAtomId === atomToDelete.id
-            ? null
-            : tempBondStateRef.current.Left,
-          Right: tempBondStateRef.current.Right?.startAtomId === atomToDelete.id
-            ? null
-            : tempBondStateRef.current.Right,
-        };
+        clearTempBondsForAtomIds(new Set([atomToDelete.id]));
 
         if (selectedAtomIndexRef.current === atomIndex) {
           setSelectedAtom(null);
@@ -2086,8 +2245,20 @@ function App() {
     let handLandmarker;
     let animationFrameId;
     let isMounted = true;
-    const handStates = {
-      Left: {
+    // Hand interaction state is tracked per detected hand (any number of hands).
+    // MediaPipe gives no stable ids across frames, so hands are re-matched to
+    // their previous state each frame by wrist proximity.
+    let handStatesList = [];
+    let nextHandStateId = 1;
+
+    const createHandState = (wrist) => {
+      const id = nextHandStateId;
+      nextHandStateId += 1;
+
+      return {
+        id,
+        key: `hand-${id}`,
+        wrist,
         isPinching: false,
         indexTip: null,
         grabbedAtomIndex: null,
@@ -2096,25 +2267,80 @@ function App() {
         popupPinchHandled: false,
         bondStartAtomId: null,
         expansionGrabOffset: null,
-      },
-      Right: {
-        isPinching: false,
-        indexTip: null,
-        grabbedAtomIndex: null,
-        grabbedMoleculeId: null,
-        moleculeGrabOffset: null,
-        popupPinchHandled: false,
-        bondStartAtomId: null,
-        expansionGrabOffset: null,
-      },
+        lastRippleAt: 0,
+      };
     };
-    const resetHandInteractionState = (handState, handLabel) => {
+
+    const resetHandInteractionState = (handState) => {
       handState.grabbedAtomIndex = null;
       handState.grabbedMoleculeId = null;
       handState.moleculeGrabOffset = null;
       handState.popupPinchHandled = false;
       handState.bondStartAtomId = null;
-      tempBondStateRef.current[handLabel] = null;
+      tempBondStateRef.current[handState.key] = null;
+    };
+
+    const clearHandState = (handState) => {
+      handState.isPinching = false;
+      handState.indexTip = null;
+      handState.expansionGrabOffset = null;
+      resetHandInteractionState(handState);
+    };
+
+    const matchHandStatesToDetections = (detections) => {
+      const candidatePairs = [];
+
+      detections.forEach((detection, detectionIndex) => {
+        for (const handState of handStatesList) {
+          candidatePairs.push({
+            detectionIndex,
+            handState,
+            distance: Math.hypot(
+              detection.wrist.x - handState.wrist.x,
+              detection.wrist.y - handState.wrist.y
+            ),
+          });
+        }
+      });
+
+      candidatePairs.sort((left, right) => left.distance - right.distance);
+
+      const assignedStates = new Map();
+      const usedStates = new Set();
+
+      for (const pair of candidatePairs) {
+        if (
+          assignedStates.has(pair.detectionIndex) ||
+          usedStates.has(pair.handState) ||
+          pair.distance > 0.4
+        ) {
+          continue;
+        }
+
+        assignedStates.set(pair.detectionIndex, pair.handState);
+        usedStates.add(pair.handState);
+      }
+
+      const nextHandStatesList = detections.map((detection, detectionIndex) => {
+        const matchedState = assignedStates.get(detectionIndex);
+
+        if (matchedState) {
+          matchedState.wrist = { ...detection.wrist };
+          return matchedState;
+        }
+
+        return createHandState({ ...detection.wrist });
+      });
+
+      for (const handState of handStatesList) {
+        if (!usedStates.has(handState)) {
+          clearHandState(handState);
+          delete tempBondStateRef.current[handState.key];
+        }
+      }
+
+      handStatesList = nextHandStatesList;
+      return nextHandStatesList;
     };
     const atomStyles = {
       H: {
@@ -2168,30 +2394,42 @@ function App() {
 
     async function startCamera() {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-        });
-
         const video = videoRef.current;
         if (!video) {
           return;
         }
 
-        video.srcObject = stream;
-        await video.play();
+        // Camera / hand tracking is best-effort: if it fails (permission denied,
+        // no camera), the lab still runs in touch/mouse-only mode.
+        try {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: "user" },
+            });
+          } catch {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+            });
+          }
 
-        const vision = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm"
-        );
+          video.srcObject = stream;
+          await video.play();
 
-        handLandmarker = await HandLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath:
-              "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-          },
-          numHands: 2,
-          runningMode: "VIDEO",
-        });
+          const vision = await FilesetResolver.forVisionTasks(
+            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm"
+          );
+
+          handLandmarker = await HandLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath:
+                "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            },
+            numHands: 6,
+            runningMode: "VIDEO",
+          });
+        } catch (cameraError) {
+          console.error("Camera unavailable, running in touch-only mode:", cameraError);
+        }
 
         const canvas = canvasRef.current;
         const context = canvas?.getContext("2d");
@@ -2590,7 +2828,8 @@ function App() {
             startPosition,
             endPosition,
             trimScale = 0.88,
-            perpendicularOffsetPx = 0
+            perpendicularOffsetPx = 0,
+            atomTypePair = null
           ) => {
             const startX = startPosition.x * canvas.width;
             const startY = startPosition.y * canvas.height;
@@ -2611,26 +2850,84 @@ function App() {
             const normalY = unitX;
             const offsetX = normalX * perpendicularOffsetPx;
             const offsetY = normalY * perpendicularOffsetPx;
+            const lineStartX = startX + unitX * trim + offsetX;
+            const lineStartY = startY + unitY * trim + offsetY;
+            const lineEndX = endX - unitX * trim + offsetX;
+            const lineEndY = endY - unitY * trim + offsetY;
+
+            if (!atomTypePair) {
+              context.beginPath();
+              context.moveTo(lineStartX, lineStartY);
+              context.lineTo(lineEndX, lineEndY);
+              context.stroke();
+              return;
+            }
+
+            // Styled covalent bond: dark underlay for depth, a color gradient
+            // between the two atoms' neon colors, and a bright highlight core.
+            const startRgb = getAtomNeonRgb(atomTypePair[0]);
+            const endRgb = getAtomNeonRgb(atomTypePair[1]);
+            const mixedRgb = getMixedNeonRgb(atomTypePair);
+            const bondGradient = context.createLinearGradient(
+              lineStartX,
+              lineStartY,
+              lineEndX,
+              lineEndY
+            );
+            bondGradient.addColorStop(0, rgbToCss(startRgb, 0.95));
+            bondGradient.addColorStop(0.5, rgbToCss(mixedRgb, 0.85));
+            bondGradient.addColorStop(1, rgbToCss(endRgb, 0.95));
+
+            context.save();
+            context.lineCap = "round";
 
             context.beginPath();
-            context.moveTo(startX + unitX * trim + offsetX, startY + unitY * trim + offsetY);
-            context.lineTo(endX - unitX * trim + offsetX, endY - unitY * trim + offsetY);
+            context.moveTo(lineStartX, lineStartY);
+            context.lineTo(lineEndX, lineEndY);
+            context.strokeStyle = "rgba(2, 6, 23, 0.42)";
+            context.lineWidth = 6 * getVisualScale();
+            context.shadowBlur = 0;
             context.stroke();
+
+            context.beginPath();
+            context.moveTo(lineStartX, lineStartY);
+            context.lineTo(lineEndX, lineEndY);
+            context.strokeStyle = bondGradient;
+            context.lineWidth = 3.2 * getVisualScale();
+            context.shadowColor = rgbToCss(mixedRgb, 0.55);
+            context.shadowBlur = 9;
+            context.stroke();
+
+            context.beginPath();
+            context.moveTo(lineStartX, lineStartY);
+            context.lineTo(lineEndX, lineEndY);
+            context.strokeStyle = "rgba(255, 255, 255, 0.5)";
+            context.lineWidth = 1.1 * getVisualScale();
+            context.shadowBlur = 0;
+            context.stroke();
+
+            context.restore();
           };
 
-          const drawBondOrderStick = (startPosition, endPosition, order = 1, trimScale = 0.88) => {
+          const drawBondOrderStick = (
+            startPosition,
+            endPosition,
+            order = 1,
+            trimScale = 0.88,
+            atomTypePair = null
+          ) => {
             if (order <= 1) {
-              drawBondStick(startPosition, endPosition, trimScale);
+              drawBondStick(startPosition, endPosition, trimScale, 0, atomTypePair);
               return;
             }
 
             const offsets =
               order === 2
-                ? [-3 * getVisualScale(), 3 * getVisualScale()]
-                : [-4 * getVisualScale(), 0, 4 * getVisualScale()];
+                ? [-3.4 * getVisualScale(), 3.4 * getVisualScale()]
+                : [-4.6 * getVisualScale(), 0, 4.6 * getVisualScale()];
 
             offsets.forEach((offset) => {
-              drawBondStick(startPosition, endPosition, trimScale, offset);
+              drawBondStick(startPosition, endPosition, trimScale, offset, atomTypePair);
             });
           };
 
@@ -2651,7 +2948,7 @@ function App() {
               }
 
               hydrogenAtoms.forEach((hydrogenAtom) => {
-                drawBondStick(oxygenAtom.position, hydrogenAtom.position);
+                drawBondStick(oxygenAtom.position, hydrogenAtom.position, 0.88, 0, ["O", "H"]);
               });
             }
 
@@ -2674,7 +2971,10 @@ function App() {
                   : molecule.formula === "N2" || molecule.formula === "CO"
                     ? 3
                     : 1;
-              drawBondOrderStick(leftAtom.position, rightAtom.position, bondOrder);
+              drawBondOrderStick(leftAtom.position, rightAtom.position, bondOrder, 0.88, [
+                leftAtom.type,
+                rightAtom.type,
+              ]);
             }
 
             if (molecule.formula === "CO2") {
@@ -2686,8 +2986,8 @@ function App() {
                 return;
               }
 
-              drawBondStick(leftOxygenAtom.position, carbonAtom.position);
-              drawBondStick(carbonAtom.position, rightOxygenAtom.position);
+              drawBondOrderStick(leftOxygenAtom.position, carbonAtom.position, 2, 0.88, ["O", "C"]);
+              drawBondOrderStick(carbonAtom.position, rightOxygenAtom.position, 2, 0.88, ["C", "O"]);
             }
 
             if (molecule.formula === "CH4") {
@@ -2702,7 +3002,7 @@ function App() {
               }
 
               hydrogenAtoms.forEach((hydrogenAtom) => {
-                drawBondStick(carbonAtom.position, hydrogenAtom.position);
+                drawBondStick(carbonAtom.position, hydrogenAtom.position, 0.88, 0, ["C", "H"]);
               });
             }
 
@@ -2718,7 +3018,7 @@ function App() {
               }
 
               hydrogenAtoms.forEach((hydrogenAtom) => {
-                drawBondStick(nitrogenAtom.position, hydrogenAtom.position);
+                drawBondStick(nitrogenAtom.position, hydrogenAtom.position, 0.88, 0, ["N", "H"]);
               });
             }
 
@@ -2741,11 +3041,11 @@ function App() {
                 return;
               }
 
-              drawBondStick(carbonAtom.position, doubleOxygenAtom.position);
-              drawBondStick(carbonAtom.position, leftHydroxylOxygenAtom.position);
-              drawBondStick(carbonAtom.position, rightHydroxylOxygenAtom.position);
-              drawBondStick(leftHydroxylOxygenAtom.position, leftHydrogenAtom.position, 0.7);
-              drawBondStick(rightHydroxylOxygenAtom.position, rightHydrogenAtom.position, 0.7);
+              drawBondOrderStick(carbonAtom.position, doubleOxygenAtom.position, 2, 0.88, ["C", "O"]);
+              drawBondStick(carbonAtom.position, leftHydroxylOxygenAtom.position, 0.88, 0, ["C", "O"]);
+              drawBondStick(carbonAtom.position, rightHydroxylOxygenAtom.position, 0.88, 0, ["C", "O"]);
+              drawBondStick(leftHydroxylOxygenAtom.position, leftHydrogenAtom.position, 0.7, 0, ["O", "H"]);
+              drawBondStick(rightHydroxylOxygenAtom.position, rightHydrogenAtom.position, 0.7, 0, ["O", "H"]);
             }
           };
 
@@ -4561,33 +4861,37 @@ function App() {
             return true;
           };
 
-          if (!video.videoWidth || !video.videoHeight) {
+          if (video.videoWidth && video.videoHeight) {
+            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+            }
+          } else if (handLandmarker) {
             animationFrameId = requestAnimationFrame(drawFrame);
             return;
+          } else if (canvas.width !== 960 || canvas.height !== 720) {
+            canvas.width = 960;
+            canvas.height = 720;
           }
 
-          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-          }
-
-          const results = handLandmarker.detectForVideo(video, performance.now());
+          const results =
+            handLandmarker && video.videoWidth && video.videoHeight
+              ? handLandmarker.detectForVideo(video, performance.now())
+              : { landmarks: [] };
 
           context.clearRect(0, 0, canvas.width, canvas.height);
           context.fillStyle = "#67e8f9";
-          const activeHands = new Set();
+          const detections = results.landmarks.map((landmarks) => ({
+            landmarks,
+            wrist: landmarks[0] ?? { x: 0.5, y: 0.5 },
+          }));
+          const matchedHandStates = matchHandStatesToDetections(detections);
 
           for (const [handIndex, landmarks] of results.landmarks.entries()) {
-            const handLabel = results.handednesses?.[handIndex]?.[0]?.categoryName;
-            const handState =
-              handLabel === "Left" || handLabel === "Right" ? handStates[handLabel] : null;
+            const handState = matchedHandStates[handIndex] ?? null;
             const thumbTip = landmarks[4];
             const indexTip = landmarks[8];
             let pinchDetected = false;
-
-            if (handState) {
-              activeHands.add(handLabel);
-            }
 
             if (thumbTip && indexTip) {
               const dx = thumbTip.x - indexTip.x;
@@ -4609,7 +4913,7 @@ function App() {
 
             if (atomicExpansionAtomRef.current && handState) {
               handState.isPinching = pinchDetected;
-              resetHandInteractionState(handState, handLabel);
+              resetHandInteractionState(handState);
               const expansionAtom = atomicExpansionAtomRef.current;
               const expansionDisplayState = getAtomicExpansionDisplayState(
                 expansionAtom,
@@ -4722,7 +5026,7 @@ function App() {
                   }
 
                   if (handState.bondStartAtomId !== null) {
-                    tempBondStateRef.current[handLabel] = {
+                    tempBondStateRef.current[handState.key] = {
                       startAtomId: handState.bondStartAtomId,
                       currentPosition: {
                         x: indexTip.x * canvas.width,
@@ -4733,17 +5037,25 @@ function App() {
                 } else {
                   const indexTipX = indexTip.x * canvas.width;
                   const indexTipY = indexTip.y * canvas.height;
-                  const otherHandLabel = handLabel === "Left" ? "Right" : "Left";
-                  const otherHandState = handStates[otherHandLabel];
-                  const otherGrabbedAtomIndex = otherHandState.grabbedAtomIndex;
-                  const otherGrabbedMoleculeId = otherHandState.grabbedMoleculeId;
-                  const otherGrabbedMolecule = otherGrabbedMoleculeId !== null
-                    ? getMoleculeById(otherGrabbedMoleculeId)
-                    : null;
+                  const otherHandStates = matchedHandStates.filter(
+                    (otherHandState) => otherHandState && otherHandState !== handState
+                  );
+                  const otherGrabbedAtomIndexes = new Set(
+                    otherHandStates
+                      .map((otherHandState) => otherHandState.grabbedAtomIndex)
+                      .filter((atomIndex) => atomIndex !== null)
+                  );
                   const occupiedMoleculeIds = new Set(
-                    otherGrabbedMoleculeId === null
-                      ? []
-                      : isWaterClusterMolecule(otherGrabbedMolecule)
+                    otherHandStates.flatMap((otherHandState) => {
+                      const otherGrabbedMoleculeId = otherHandState.grabbedMoleculeId;
+
+                      if (otherGrabbedMoleculeId === null) {
+                        return [];
+                      }
+
+                      const otherGrabbedMolecule = getMoleculeById(otherGrabbedMoleculeId);
+
+                      return isWaterClusterMolecule(otherGrabbedMolecule)
                         ? [otherGrabbedMoleculeId, ...(otherGrabbedMolecule.memberMoleculeIds ?? [])]
                         : [
                             otherGrabbedMoleculeId,
@@ -4751,8 +5063,19 @@ function App() {
                               getClusterForMemberMoleculeId(otherGrabbedMoleculeId)
                                 ?.memberMoleculeIds ?? []
                             ),
-                          ]
+                          ];
+                    })
                   );
+
+                  if (pointerDragRef.current?.kind === "molecule") {
+                    occupiedMoleculeIds.add(pointerDragRef.current.moleculeId);
+                    const pointerCluster = getClusterForMemberMoleculeId(
+                      pointerDragRef.current.moleculeId
+                    );
+                    for (const memberMoleculeId of pointerCluster?.memberMoleculeIds ?? []) {
+                      occupiedMoleculeIds.add(memberMoleculeId);
+                    }
+                  }
 
                   if (handState.grabbedAtomIndex === null && handState.grabbedMoleculeId === null) {
                     const grabbedMolecule = findMoleculeAtCanvasPoint(
@@ -4768,33 +5091,37 @@ function App() {
                         x: indexTip.x - grabbedMolecule.center.x,
                         y: indexTip.y - grabbedMolecule.center.y,
                       };
+                      handState.lastRippleAt = performance.now();
+                      spawnGrabRipple(
+                        grabbedMolecule.center,
+                        getMoleculeMixedNeonRgb(grabbedMolecule)
+                      );
                     }
                   }
 
                   if (handState.grabbedAtomIndex === null && handState.grabbedMoleculeId === null) {
-                    const looseAtomSharedGrabIndex =
-                      otherGrabbedAtomIndex !== null
-                        ? atomsRef.current.findIndex(({ position, moleculeId }, atomIndex) => {
-                            if (atomIndex !== otherGrabbedAtomIndex || moleculeId !== null) {
-                              return false;
-                            }
+                    const looseAtomSharedGrabIndex = atomsRef.current.findIndex(
+                      ({ position, moleculeId }, atomIndex) => {
+                        if (!otherGrabbedAtomIndexes.has(atomIndex) || moleculeId !== null) {
+                          return false;
+                        }
 
-                            const atomScreenX = position.x * canvas.width;
-                            const atomScreenY = position.y * canvas.height;
-                            const distanceToAtom = Math.hypot(
-                              indexTipX - atomScreenX,
-                              indexTipY - atomScreenY
-                            );
+                        const atomScreenX = position.x * canvas.width;
+                        const atomScreenY = position.y * canvas.height;
+                        const distanceToAtom = Math.hypot(
+                          indexTipX - atomScreenX,
+                          indexTipY - atomScreenY
+                        );
 
-                            return distanceToAtom <= atomGrabRadius;
-                          })
-                        : -1;
+                        return distanceToAtom <= atomGrabRadius;
+                      }
+                    );
 
                     handState.grabbedAtomIndex =
                       looseAtomSharedGrabIndex >= 0
                         ? looseAtomSharedGrabIndex
                         : atomsRef.current.findIndex(({ position, moleculeId }, atomIndex) => {
-                            if (atomIndex === otherGrabbedAtomIndex) {
+                            if (otherGrabbedAtomIndexes.has(atomIndex)) {
                               return false;
                             }
 
@@ -4814,6 +5141,13 @@ function App() {
 
                     if (handState.grabbedAtomIndex < 0) {
                       handState.grabbedAtomIndex = null;
+                    } else {
+                      const grabbedAtom = atomsRef.current[handState.grabbedAtomIndex];
+
+                      if (grabbedAtom) {
+                        handState.lastRippleAt = performance.now();
+                        spawnGrabRipple(grabbedAtom.position, getAtomNeonRgb(grabbedAtom.type));
+                      }
                     }
                   }
 
@@ -4827,6 +5161,15 @@ function App() {
                         x: indexTip.x - (handState.moleculeGrabOffset?.x ?? 0),
                         y: indexTip.y - (handState.moleculeGrabOffset?.y ?? 0),
                       });
+
+                      if (performance.now() - handState.lastRippleAt >= GRAB_RIPPLE_REPEAT_MS) {
+                        handState.lastRippleAt = performance.now();
+                        spawnGrabRipple(
+                          grabbedMolecule.center,
+                          getMoleculeMixedNeonRgb(grabbedMolecule),
+                          { soft: true }
+                        );
+                      }
                     } else {
                       handState.grabbedMoleculeId = null;
                       handState.moleculeGrabOffset = null;
@@ -4835,7 +5178,10 @@ function App() {
                     const grabbedAtom = atomsRef.current[handState.grabbedAtomIndex];
                     const isSharedLooseAtomGrab =
                       grabbedAtom?.moleculeId === null &&
-                      otherHandState.grabbedAtomIndex === handState.grabbedAtomIndex;
+                      otherHandStates.some(
+                        (otherHandState) =>
+                          otherHandState.grabbedAtomIndex === handState.grabbedAtomIndex
+                      );
 
                     if (grabbedAtom?.moleculeId === null && !isSharedLooseAtomGrab) {
                       atomsRef.current[handState.grabbedAtomIndex] = {
@@ -4845,12 +5191,21 @@ function App() {
                           y: indexTip.y,
                         }),
                       };
+
+                      if (performance.now() - handState.lastRippleAt >= GRAB_RIPPLE_REPEAT_MS) {
+                        handState.lastRippleAt = performance.now();
+                        spawnGrabRipple(
+                          atomsRef.current[handState.grabbedAtomIndex].position,
+                          getAtomNeonRgb(grabbedAtom.type),
+                          { soft: true }
+                        );
+                      }
                     }
                   }
                 }
               } else {
                 if (bondingModeRef.current && handState.bondStartAtomId !== null) {
-                  const releasePoint = tempBondStateRef.current[handLabel]?.currentPosition;
+                  const releasePoint = tempBondStateRef.current[handState.key]?.currentPosition;
 
                   if (releasePoint) {
                     finalizeBondAtCanvasPoint(
@@ -4860,7 +5215,7 @@ function App() {
                     );
                   }
 
-                  tempBondStateRef.current[handLabel] = null;
+                  tempBondStateRef.current[handState.key] = null;
                   handState.bondStartAtomId = null;
                 }
 
@@ -4884,34 +5239,47 @@ function App() {
             }
           }
 
-          const leftHandState = handStates.Left;
-          const rightHandState = handStates.Right;
-          const leftGrabbedAtom =
-            leftHandState.grabbedAtomIndex !== null
-              ? atomsRef.current[leftHandState.grabbedAtomIndex]
-              : null;
-          const rightGrabbedAtom =
-            rightHandState.grabbedAtomIndex !== null
-              ? atomsRef.current[rightHandState.grabbedAtomIndex]
-              : null;
-          const sharedLooseAtom =
+          const pinchingHands = handStatesList.filter(
+            (handState) => handState.isPinching && handState.indexTip
+          );
+          let sharedLooseAtom = null;
+          let sharedGrabHandPair = null;
+
+          if (
             !deleteModeRef.current &&
             !bondingModeRef.current &&
-            !moleculePromptRef.current &&
-            leftHandState.isPinching &&
-            rightHandState.isPinching &&
-            leftHandState.indexTip &&
-            rightHandState.indexTip &&
-            leftGrabbedAtom &&
-            rightGrabbedAtom &&
-            leftGrabbedAtom.id === rightGrabbedAtom.id &&
-            leftGrabbedAtom.moleculeId === null
-              ? leftGrabbedAtom
-              : null;
+            !moleculePromptRef.current
+          ) {
+            outer: for (let leftIndex = 0; leftIndex < pinchingHands.length; leftIndex += 1) {
+              for (
+                let rightIndex = leftIndex + 1;
+                rightIndex < pinchingHands.length;
+                rightIndex += 1
+              ) {
+                const firstHand = pinchingHands[leftIndex];
+                const secondHand = pinchingHands[rightIndex];
+
+                if (
+                  firstHand.grabbedAtomIndex === null ||
+                  firstHand.grabbedAtomIndex !== secondHand.grabbedAtomIndex
+                ) {
+                  continue;
+                }
+
+                const candidateAtom = atomsRef.current[firstHand.grabbedAtomIndex];
+
+                if (candidateAtom && candidateAtom.moleculeId === null) {
+                  sharedLooseAtom = candidateAtom;
+                  sharedGrabHandPair = [firstHand, secondHand];
+                  break outer;
+                }
+              }
+            }
+          }
 
           if (atomicExpansionAtomRef.current) {
-            const leftPinchPoint = leftHandState.isPinching ? leftHandState.indexTip : null;
-            const rightPinchPoint = rightHandState.isPinching ? rightHandState.indexTip : null;
+            const leftPinchPoint = pinchingHands[0]?.indexTip ?? null;
+            const rightPinchPoint = pinchingHands[1]?.indexTip ?? null;
             const collapseGesture = atomicExpansionCollapseGestureRef.current;
             const expansionEntryProgress = getAtomicExpansionEntryProgress(
               atomicExpansionAtomRef.current,
@@ -5011,10 +5379,11 @@ function App() {
                 shellScale: 1,
               };
             }
-          } else if (sharedLooseAtom) {
+          } else if (sharedLooseAtom && sharedGrabHandPair) {
+            const [firstHand, secondHand] = sharedGrabHandPair;
             const fingertipDistancePx = Math.hypot(
-              (leftHandState.indexTip.x - rightHandState.indexTip.x) * canvas.width,
-              (leftHandState.indexTip.y - rightHandState.indexTip.y) * canvas.height
+              (firstHand.indexTip.x - secondHand.indexTip.x) * canvas.width,
+              (firstHand.indexTip.y - secondHand.indexTip.y) * canvas.height
             );
             const gesture = atomicExpansionGestureRef.current;
 
@@ -5035,14 +5404,10 @@ function App() {
                 });
                 resetAtomicExpansionGesture();
                 resetAtomicExpansionCollapseGesture();
-                handStates.Left.isPinching = false;
-                handStates.Left.indexTip = null;
-                resetHandInteractionState(handStates.Left, "Left");
-                handStates.Left.expansionGrabOffset = null;
-                handStates.Right.isPinching = false;
-                handStates.Right.indexTip = null;
-                resetHandInteractionState(handStates.Right, "Right");
-                handStates.Right.expansionGrabOffset = null;
+
+                for (const handState of handStatesList) {
+                  clearHandState(handState);
+                }
               }
             }
           } else {
@@ -5051,55 +5416,105 @@ function App() {
           }
 
           if (deleteModeRef.current) {
-            handStates.Left.isPinching = false;
-            handStates.Left.indexTip = null;
-            handStates.Left.grabbedAtomIndex = null;
-            handStates.Left.grabbedMoleculeId = null;
-            handStates.Left.moleculeGrabOffset = null;
-            handStates.Left.bondStartAtomId = null;
-            handStates.Left.expansionGrabOffset = null;
-            handStates.Right.isPinching = false;
-            handStates.Right.indexTip = null;
-            handStates.Right.grabbedAtomIndex = null;
-            handStates.Right.grabbedMoleculeId = null;
-            handStates.Right.moleculeGrabOffset = null;
-            handStates.Right.bondStartAtomId = null;
-            handStates.Right.expansionGrabOffset = null;
-            tempBondStateRef.current.Left = null;
-            tempBondStateRef.current.Right = null;
+            for (const handState of handStatesList) {
+              clearHandState(handState);
+            }
+
+            pointerDragRef.current = null;
             resetAtomicExpansionGesture();
-          } else {
-            for (const handLabel of ["Left", "Right"]) {
-              if (!activeHands.has(handLabel)) {
-                handStates[handLabel].isPinching = false;
-                handStates[handLabel].indexTip = null;
-                handStates[handLabel].grabbedAtomIndex = null;
-                handStates[handLabel].grabbedMoleculeId = null;
-                handStates[handLabel].moleculeGrabOffset = null;
-                handStates[handLabel].popupPinchHandled = false;
-                handStates[handLabel].bondStartAtomId = null;
-                handStates[handLabel].expansionGrabOffset = null;
-                tempBondStateRef.current[handLabel] = null;
+          }
+
+          // Apply touch/mouse drag (processed in the same loop so it behaves like a hand grab).
+          const pointerDrag = pointerDragRef.current;
+
+          if (
+            pointerDrag &&
+            !deleteModeRef.current &&
+            !bondingModeRef.current &&
+            !atomicExpansionAtomRef.current
+          ) {
+            if (pointerDrag.kind === "molecule") {
+              const draggedMolecule = getMoleculeById(pointerDrag.moleculeId);
+
+              if (draggedMolecule) {
+                moveMoleculeTo(draggedMolecule, {
+                  x: pointerDrag.position.x - (pointerDrag.grabOffset?.x ?? 0),
+                  y: pointerDrag.position.y - (pointerDrag.grabOffset?.y ?? 0),
+                });
+
+                if (performance.now() - pointerDrag.lastRippleAt >= GRAB_RIPPLE_REPEAT_MS) {
+                  pointerDrag.lastRippleAt = performance.now();
+                  spawnGrabRipple(
+                    draggedMolecule.center,
+                    getMoleculeMixedNeonRgb(draggedMolecule),
+                    { soft: true }
+                  );
+                }
+              } else {
+                pointerDragRef.current = null;
+              }
+            } else {
+              const draggedAtomIndex = atomsRef.current.findIndex(
+                (atom) => atom.id === pointerDrag.atomId
+              );
+              const draggedAtom = draggedAtomIndex >= 0 ? atomsRef.current[draggedAtomIndex] : null;
+
+              if (draggedAtom && draggedAtom.moleculeId === null) {
+                atomsRef.current[draggedAtomIndex] = {
+                  ...draggedAtom,
+                  position: clampPosition(pointerDrag.position),
+                };
+
+                if (performance.now() - pointerDrag.lastRippleAt >= GRAB_RIPPLE_REPEAT_MS) {
+                  pointerDrag.lastRippleAt = performance.now();
+                  spawnGrabRipple(
+                    atomsRef.current[draggedAtomIndex].position,
+                    getAtomNeonRgb(draggedAtom.type),
+                    { soft: true }
+                  );
+                }
+              } else {
+                pointerDragRef.current = null;
               }
             }
           }
 
           grabbedMoleculeIdsRef.current = new Set(
-            Object.values(handStates)
-              .flatMap((handState) => {
-                if (handState.grabbedMoleculeId === null) {
-                  return [];
-                }
+            [
+              ...handStatesList,
+              ...(pointerDragRef.current?.kind === "molecule"
+                ? [{ grabbedMoleculeId: pointerDragRef.current.moleculeId }]
+                : []),
+            ].flatMap((handState) => {
+              if (handState.grabbedMoleculeId === null) {
+                return [];
+              }
 
-                const grabbedMolecule = getMoleculeById(handState.grabbedMoleculeId);
+              const grabbedMolecule = getMoleculeById(handState.grabbedMoleculeId);
 
-                if (!isWaterClusterMolecule(grabbedMolecule)) {
-                  return [handState.grabbedMoleculeId];
-                }
+              if (!isWaterClusterMolecule(grabbedMolecule)) {
+                return [handState.grabbedMoleculeId];
+              }
 
-                return [handState.grabbedMoleculeId, ...(grabbedMolecule.memberMoleculeIds ?? [])];
-              })
+              return [handState.grabbedMoleculeId, ...(grabbedMolecule.memberMoleculeIds ?? [])];
+            })
           );
+
+          const grabbedAtomIdSet = new Set();
+
+          for (const handState of handStatesList) {
+            if (handState.grabbedAtomIndex !== null) {
+              const grabbedAtom = atomsRef.current[handState.grabbedAtomIndex];
+
+              if (grabbedAtom) {
+                grabbedAtomIdSet.add(grabbedAtom.id);
+              }
+            }
+          }
+
+          if (pointerDragRef.current?.kind === "atom") {
+            grabbedAtomIdSet.add(pointerDragRef.current.atomId);
+          }
 
           syncPendingMoleculePrompt();
           tryFormWaterMolecules();
@@ -5149,7 +5564,8 @@ function App() {
               leftAtom.position,
               rightAtom.position,
               getCovalentBondOrder(bond),
-              0.84
+              0.84,
+              [leftAtom.type, rightAtom.type]
             );
           }
 
@@ -5465,8 +5881,32 @@ function App() {
             const atomX = position.x * canvas.width;
             const atomY = position.y * canvas.height;
             const isSelected = selectedAtomIndexRef.current === atomIndex;
-            const atomScale = atomAnimationScales.get(atomId) ?? 1;
+            const isGrabbed =
+              grabbedAtomIdSet.has(atomId) ||
+              (atom.moleculeId !== null && grabbedMoleculeIdsRef.current.has(atom.moleculeId));
+            const isForming = atomAnimationScales.has(atomId);
+            const atomScale = (atomAnimationScales.get(atomId) ?? 1) * (isGrabbed ? 1.06 : 1);
             const drawRadius = atomRadius * atomScale;
+            const neonRgb = getAtomNeonRgb(type);
+
+            // Soft neon aura behind every atom; brighter while grabbed or forming.
+            const auraStrength = isForming ? 0.5 : isGrabbed ? 0.4 : 0.16;
+            const auraRadius = drawRadius * (isGrabbed || isForming ? 1.9 : 1.55);
+            const auraGradient = context.createRadialGradient(
+              atomX,
+              atomY,
+              drawRadius * 0.55,
+              atomX,
+              atomY,
+              auraRadius
+            );
+            auraGradient.addColorStop(0, rgbToCss(neonRgb, auraStrength));
+            auraGradient.addColorStop(1, rgbToCss(neonRgb, 0));
+
+            context.beginPath();
+            context.arc(atomX, atomY, auraRadius, 0, Math.PI * 2);
+            context.fillStyle = auraGradient;
+            context.fill();
 
             const atomGradient = context.createRadialGradient(
               atomX - drawRadius * 0.42,
@@ -5481,17 +5921,18 @@ function App() {
             atomGradient.addColorStop(0.72, atomStyle.base);
             atomGradient.addColorStop(1, atomStyle.edge);
 
-            if (atomScale > 1) {
-              context.beginPath();
-              context.arc(atomX, atomY, drawRadius + 10 * getVisualScale(), 0, Math.PI * 2);
-              context.fillStyle = "rgba(125, 211, 252, 0.18)";
-              context.fill();
+            context.save();
+
+            if (isGrabbed || isForming) {
+              context.shadowColor = rgbToCss(neonRgb, 0.75);
+              context.shadowBlur = 22 * getVisualScale();
             }
 
             context.beginPath();
             context.arc(atomX, atomY, drawRadius, 0, Math.PI * 2);
             context.fillStyle = atomGradient;
             context.fill();
+            context.restore();
 
             if (isSelected) {
               context.beginPath();
@@ -5518,6 +5959,41 @@ function App() {
             context.fillStyle = shadeGradient;
             context.fill();
 
+            // Colored edge ring + top-left rim light + crisp specular highlight.
+            context.save();
+            context.beginPath();
+            context.arc(atomX, atomY, drawRadius - 0.6, 0, Math.PI * 2);
+            context.strokeStyle = rgbToCss(neonRgb, isGrabbed ? 0.85 : 0.42);
+            context.lineWidth = 1.6 * getVisualScale();
+            context.stroke();
+
+            context.beginPath();
+            context.arc(
+              atomX,
+              atomY,
+              drawRadius * 0.86,
+              Math.PI * 1.05,
+              Math.PI * 1.62
+            );
+            context.strokeStyle = "rgba(255, 255, 255, 0.5)";
+            context.lineWidth = Math.max(1.2, drawRadius * 0.09);
+            context.lineCap = "round";
+            context.stroke();
+
+            context.beginPath();
+            context.arc(
+              atomX - drawRadius * 0.36,
+              atomY - drawRadius * 0.4,
+              Math.max(1.6, drawRadius * 0.13),
+              0,
+              Math.PI * 2
+            );
+            context.fillStyle = "rgba(255, 255, 255, 0.85)";
+            context.shadowColor = "rgba(255, 255, 255, 0.9)";
+            context.shadowBlur = 6;
+            context.fill();
+            context.restore();
+
             if (parentMolecule) {
               drawAtomLonePairs(atom, parentMolecule, drawRadius);
             }
@@ -5539,6 +6015,129 @@ function App() {
 
           for (const molecule of moleculesRef.current) {
             drawWaterDimerAnnotations(molecule);
+          }
+
+          // Transient neon effects: grab ripples and molecule formation bursts.
+          const effectsNow = performance.now();
+          effectsRef.current = effectsRef.current.filter(
+            (effect) => effectsNow - effect.startedAt < effect.duration
+          );
+
+          for (const effect of effectsRef.current) {
+            const progress = clampValue(
+              (effectsNow - effect.startedAt) / effect.duration,
+              0,
+              1
+            );
+            const eased = easeOutCubic(progress);
+            const effectX = effect.x * canvas.width;
+            const effectY = effect.y * canvas.height;
+
+            if (effect.kind === "ripple") {
+              const baseAlpha = effect.soft ? 0.3 : 0.72;
+              const startRadius = atomRadius * 1.05;
+              const endRadius = atomRadius * (effect.soft ? 2.5 : 3.6);
+              const ringOffsets = effect.soft ? [0] : [0, 0.18];
+
+              context.save();
+              context.lineCap = "round";
+
+              for (const ringOffset of ringOffsets) {
+                const ringProgress = clampValue(eased - ringOffset, 0, 1);
+
+                if (ringProgress <= 0) {
+                  continue;
+                }
+
+                const ringRadius = lerp(startRadius, endRadius, ringProgress);
+                const ringAlpha = baseAlpha * (1 - ringProgress) ** 1.4;
+
+                context.beginPath();
+                context.arc(effectX, effectY, ringRadius, 0, Math.PI * 2);
+                context.strokeStyle = rgbToCss(effect.color, ringAlpha);
+                context.lineWidth = lerp(3.6, 1.1, ringProgress) * getVisualScale();
+                context.shadowColor = rgbToCss(effect.color, Math.min(1, ringAlpha * 1.5));
+                context.shadowBlur = 16;
+                context.stroke();
+              }
+
+              context.restore();
+            }
+
+            if (effect.kind === "formation") {
+              const maxRadius = 108 * getVisualScale();
+
+              context.save();
+
+              // Central bloom.
+              const bloomRadius = lerp(atomRadius * 0.8, maxRadius * 0.9, eased);
+              const bloomAlpha = 0.5 * (1 - progress) ** 1.2;
+              const bloomGradient = context.createRadialGradient(
+                effectX,
+                effectY,
+                0,
+                effectX,
+                effectY,
+                bloomRadius
+              );
+              bloomGradient.addColorStop(0, rgbToCss(effect.color, bloomAlpha));
+              bloomGradient.addColorStop(0.55, rgbToCss(effect.color, bloomAlpha * 0.45));
+              bloomGradient.addColorStop(1, rgbToCss(effect.color, 0));
+
+              context.beginPath();
+              context.arc(effectX, effectY, bloomRadius, 0, Math.PI * 2);
+              context.fillStyle = bloomGradient;
+              context.fill();
+
+              // Twin expanding rings.
+              context.lineCap = "round";
+
+              for (const ringOffset of [0, 0.22]) {
+                const ringProgress = clampValue(eased - ringOffset, 0, 1);
+
+                if (ringProgress <= 0) {
+                  continue;
+                }
+
+                const ringRadius = ringProgress * maxRadius;
+                const ringAlpha = 0.85 * (1 - ringProgress) ** 1.3;
+
+                context.beginPath();
+                context.arc(effectX, effectY, ringRadius, 0, Math.PI * 2);
+                context.strokeStyle = rgbToCss(effect.color, ringAlpha);
+                context.lineWidth = lerp(4, 1.2, ringProgress) * getVisualScale();
+                context.shadowColor = rgbToCss(effect.color, Math.min(1, ringAlpha * 1.4));
+                context.shadowBlur = 18;
+                context.stroke();
+              }
+
+              // Sparks flying outward on fixed golden-angle directions.
+              const sparkAlpha = (1 - progress) ** 1.2;
+
+              for (let sparkIndex = 0; sparkIndex < FORMATION_SPARK_COUNT; sparkIndex += 1) {
+                const sparkAngle = sparkIndex * 2.399963229728653;
+                const sparkReach = maxRadius * (0.72 + (sparkIndex % 3) * 0.14);
+                const sparkDistance = lerp(atomRadius * 0.5, sparkReach, eased);
+                const sparkRadius =
+                  Math.max(1.2, (2.8 - (sparkIndex % 3) * 0.7) * getVisualScale()) *
+                  (1 - progress * 0.45);
+
+                context.beginPath();
+                context.arc(
+                  effectX + Math.cos(sparkAngle) * sparkDistance,
+                  effectY + Math.sin(sparkAngle) * sparkDistance,
+                  sparkRadius,
+                  0,
+                  Math.PI * 2
+                );
+                context.fillStyle = rgbToCss(effect.color, sparkAlpha);
+                context.shadowColor = rgbToCss(effect.color, sparkAlpha);
+                context.shadowBlur = 10;
+                context.fill();
+              }
+
+              context.restore();
+            }
           }
 
           animationFrameId = requestAnimationFrame(drawFrame);
@@ -5924,12 +6523,14 @@ function App() {
           <div>
             <div style={{ fontSize: "clamp(14px, 1.8vw, 15px)", fontWeight: 700 }}>Controls</div>
             <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", opacity: 0.66, marginTop: "3px" }}>
-              Press M to toggle the atom menu
+              Tap the toggle (or press M) for the atom menu
             </div>
           </div>
-          <div
+          <button
+            type="button"
+            onClick={() => setMenuOpen((current) => !current)}
             style={{
-              padding: "5px 10px",
+              padding: "6px 12px",
               borderRadius: "999px",
               border: "1px solid rgba(255, 255, 255, 0.14)",
               background: menuOpen ? "rgba(125, 211, 252, 0.16)" : "rgba(255, 255, 255, 0.06)",
@@ -5938,10 +6539,11 @@ function App() {
               fontWeight: 700,
               letterSpacing: "0.08em",
               textTransform: "uppercase",
+              cursor: "pointer",
             }}
           >
             {menuOpen ? "Menu Open" : "Menu Closed"}
-          </div>
+          </button>
         </div>
         {menuOpen ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "clamp(10px, 1.5vw, 12px)" }}>
@@ -6160,10 +6762,12 @@ function App() {
             className="camera-viewport"
             ref={viewportRef}
             onClick={handleViewportClick}
-            onMouseDown={handleViewportMouseDown}
-            onMouseMove={handleViewportMouseMove}
-            onMouseUp={handleViewportMouseUp}
-            onMouseLeave={handleViewportMouseLeave}
+            onPointerDown={handleViewportPointerDown}
+            onPointerMove={handleViewportPointerMove}
+            onPointerUp={handleViewportPointerUp}
+            onPointerLeave={handleViewportPointerLeave}
+            onPointerCancel={handleViewportPointerLeave}
+            style={{ touchAction: "none" }}
           >
         {moleculePrompt ? (
           <div
