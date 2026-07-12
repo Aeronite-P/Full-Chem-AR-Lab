@@ -15,6 +15,11 @@ Just click the link and it runs in your browser. Your browser will ask for camer
 ## What it does
 
 - **Hand-tracked interaction** — pinch your thumb and finger to grab an atom, move your hand to drag it, release to drop.
+- **Multi-hand support** — tracks up to 6 hands at once, so multiple people can interact at the same time.
+- **Touch & mobile support** — atoms and molecules can be dragged by touch, the full HUD works on small screens, and the app falls back to a touch-only sandbox if the camera is unavailable.
+- **Neon grab ripples** — grabbing an atom ripples in that atom's color; grabbing a molecule ripples in the blended color of all of its atoms.
+- **Formation glow** — molecules form with a glowing burst of expanding rings, bloom, and sparks in the molecule's mixed color.
+- **Polished visuals** — atoms have neon auras, rim lighting, and specular highlights; bonds render as color-gradient sticks with depth and glow.
 - **Spawn atoms** from a menu: Hydrogen (H), Oxygen (O), Carbon (C), and Nitrogen (N).
 - **Bonding Mode** — draw covalent bonds between atoms (single, double, triple), with realistic bond limits per element.
 - **Build real molecules** — when the right atoms come together the app offers to snap them into a molecule:
