@@ -498,6 +498,9 @@ const REACTION_TEMPLATES = [
     equation: "H3O⁺ + OH⁻ → 2 H2O",
     reactantMolecules: { "H3O+": 1, "OH-": 1 },
     products: ["H2O", "H2O"],
+    // The two product waters hydrogen-bond into the 2H2O dimer automatically
+    // (no follow-up prompt).
+    autoClusterWaters: true,
     energy: "exothermic",
     prompt: "Neutralization! The acid H3O⁺ and the base OH⁻ cancel into two waters?",
   },
@@ -598,6 +601,10 @@ const GENERIC_TEMPLATE_NEEDS_DELAY = Object.fromEntries(
 // Build-through states wait for the bonded cluster to sit unchanged briefly,
 // so intermediate shapes don't interrupt with premature offers.
 const GENERIC_PROMPT_DELAY_MS = 1800;
+
+// Breathing room after any prompt closes before the next auto-offer may
+// appear — prevents queued-up matches from firing in an instant avalanche.
+const PROMPT_COOLDOWN_MS = 1500;
 
 const getGenericTemplateForMolecule = (molecule) =>
   GENERIC_MOLECULE_TEMPLATES.find((template) => template.type === molecule?.templateType) ?? null;
@@ -1021,6 +1028,7 @@ function App() {
   // First-seen timestamps per bonded component, for the generic prompt delay.
   const genericComponentAgesRef = useRef(new Map());
   const tutorialActiveRef = useRef(false);
+  const promptClosedAtRef = useRef(0);
   const showPolarityRef = useRef(false);
   const soundEnabledRef = useRef(true);
   const audioContextRef = useRef(null);
@@ -1211,7 +1219,7 @@ function App() {
         createBond(roleAtoms[bond.a].id, roleAtoms[bond.b].id, { type: bond.order ?? "single" });
       }
 
-      buildMoleculeRecord({
+      return buildMoleculeRecord({
         type: template.type,
         displayLabel: template.displayLabel,
         formula: template.formula,
@@ -1221,7 +1229,6 @@ function App() {
         charge: template.charge ?? 0,
         templateType: template.type,
       });
-      return;
     }
 
     const composition = LEGACY_PRODUCT_COMPOSITIONS[formula];
@@ -1242,7 +1249,7 @@ function App() {
       setAtomPosition(oxygenAtom.id, centerPosition);
       createBond(oxygenAtom.id, hydrogenA.id);
       createBond(oxygenAtom.id, hydrogenB.id);
-      buildMoleculeRecord({
+      return buildMoleculeRecord({
         type: "water",
         displayLabel: "H2O",
         formula: "H2O",
@@ -1250,7 +1257,6 @@ function App() {
         center: { ...centerPosition },
         snapStartedAt: performance.now(),
       });
-      return;
     }
 
     if (formula === "CO2") {
@@ -1260,7 +1266,7 @@ function App() {
       setAtomPosition(carbonAtom.id, centerPosition);
       createBond(carbonAtom.id, oxygenAtoms[0].id, { type: "double" });
       createBond(carbonAtom.id, oxygenAtoms[1].id, { type: "double" });
-      buildMoleculeRecord({
+      return buildMoleculeRecord({
         type: "carbonDioxide",
         displayLabel: "CO2",
         formula: "CO2",
@@ -1268,7 +1274,6 @@ function App() {
         center: { ...centerPosition },
         snapStartedAt: performance.now(),
       });
-      return;
     }
 
     if (formula === "H2") {
@@ -1276,7 +1281,7 @@ function App() {
 
       setAtomPosition(hydrogenA.id, centerPosition);
       createBond(hydrogenA.id, hydrogenB.id);
-      buildMoleculeRecord({
+      return buildMoleculeRecord({
         type: "hydrogen",
         displayLabel: "H2",
         formula: "H2",
@@ -1285,6 +1290,8 @@ function App() {
         snapStartedAt: performance.now(),
       });
     }
+
+    return null;
   };
 
   const showEventBanner = (banner, durationMs = 2800) => {
@@ -1412,9 +1419,21 @@ function App() {
   };
 
   const setMoleculePromptState = (prompt) => {
+    // Closing a prompt (accept, decline, or auto-cancel) starts the cooldown
+    // window before the next automatic offer.
+    if (prompt === null && moleculePromptRef.current !== null) {
+      promptClosedAtRef.current = performance.now();
+    }
+
     moleculePromptRef.current = prompt;
     setMoleculePrompt(prompt);
   };
+
+  // Shared gate for every automatic prompt source (molecule detectors,
+  // cluster offers, reactions).
+  const isAutoPromptBlocked = () =>
+    moleculePromptRef.current !== null ||
+    performance.now() - promptClosedAtRef.current < PROMPT_COOLDOWN_MS;
 
   const setPromptedComboStatus = (comboKey, status) => {
     setPromptedMoleculeCombos((current) => {
@@ -2556,14 +2575,63 @@ function App() {
 
       const atomPool = getAtomsByIds(allAtomIds);
 
-      reaction.products.forEach((productFormula, productIndex) => {
-        const offset = getReactionProductOffset(reaction.products.length, productIndex);
+      const productMoleculeIds = reaction.products
+        .map((productFormula, productIndex) => {
+          const offset = getReactionProductOffset(reaction.products.length, productIndex);
 
-        buildReactionProduct(productFormula, atomPool, {
-          x: clampValue(reactionCentroid.x + offset.x, 0.12, 0.88),
-          y: clampValue(reactionCentroid.y + offset.y, 0.12, 0.88),
-        });
-      });
+          return buildReactionProduct(productFormula, atomPool, {
+            x: clampValue(reactionCentroid.x + offset.x, 0.12, 0.88),
+            y: clampValue(reactionCentroid.y + offset.y, 0.12, 0.88),
+          });
+        })
+        .filter((moleculeId) => moleculeId !== null && moleculeId !== undefined);
+
+      // Products sit close together, which would immediately re-trigger the
+      // follow-up detectors (CO2+H2O -> carbonic acid, H2O+H2O -> dimer).
+      // Pre-mark those combos so freshly made products don't nag the user.
+      const productWaterIds = productMoleculeIds.filter(
+        (moleculeId) => getMoleculeById(moleculeId)?.formula === "H2O"
+      );
+      const productCarbonDioxideIds = productMoleculeIds.filter(
+        (moleculeId) => getMoleculeById(moleculeId)?.formula === "CO2"
+      );
+
+      for (const carbonDioxideId of productCarbonDioxideIds) {
+        for (const waterId of productWaterIds) {
+          setPromptedComboStatus(getMoleculeIdComboKey([waterId, carbonDioxideId]), "declined");
+        }
+      }
+
+      for (let leftIndex = 0; leftIndex < productWaterIds.length; leftIndex += 1) {
+        for (let rightIndex = leftIndex + 1; rightIndex < productWaterIds.length; rightIndex += 1) {
+          const waterPairIds = [productWaterIds[leftIndex], productWaterIds[rightIndex]];
+          const dimerComboKey = getMoleculeIdComboKey(waterPairIds);
+
+          if (reaction.autoClusterWaters) {
+            // The "2 H2O" in the equation becomes the water dimer directly —
+            // snap them together once the product waters settle, no prompt.
+            setPromptedComboStatus(dimerComboKey, "accepted");
+            window.setTimeout(() => {
+              const clusterId = buildWaterClusterRecord({
+                sourceMoleculeIds: waterPairIds,
+                comboKey: dimerComboKey,
+              });
+
+              if (clusterId === null) {
+                // Waters may still be settling — one retry.
+                window.setTimeout(() => {
+                  buildWaterClusterRecord({
+                    sourceMoleculeIds: waterPairIds,
+                    comboKey: dimerComboKey,
+                  });
+                }, 1100);
+              }
+            }, 900);
+          } else {
+            setPromptedComboStatus(dimerComboKey, "declined");
+          }
+        }
+      }
 
       spawnReactionBurst(reactionCentroid, reaction.energy);
       playReactionSound();
@@ -5127,7 +5195,7 @@ function App() {
           };
 
           const tryFormWaterMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5185,7 +5253,7 @@ function App() {
           };
 
           const tryFormHydrogenMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5230,7 +5298,7 @@ function App() {
           };
 
           const tryFormCarbonMonoxideMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5281,7 +5349,7 @@ function App() {
           };
 
           const tryFormOxygenMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5326,7 +5394,7 @@ function App() {
           };
 
           const tryFormNitrogenMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5371,7 +5439,7 @@ function App() {
           };
 
           const tryFormCarbonDioxideMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5429,7 +5497,7 @@ function App() {
           };
 
           const tryFormAmmoniaMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5487,7 +5555,7 @@ function App() {
           };
 
           const tryFormMethaneMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5545,7 +5613,7 @@ function App() {
           };
 
           const tryFormHydroniumMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5603,7 +5671,7 @@ function App() {
           };
 
           const tryFormAmmoniumMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5661,7 +5729,7 @@ function App() {
           };
 
           const tryFormSodiumChlorideMolecules = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5714,7 +5782,7 @@ function App() {
 
               // No template offers during the tutorial — it teaches water, and
               // an OH- prompt mid-lesson would derail (and confuse) the flow.
-              if (promptCandidate || moleculePromptRef.current || tutorialActiveRef.current) {
+              if (promptCandidate || isAutoPromptBlocked() || tutorialActiveRef.current) {
                 continue;
               }
 
@@ -5777,7 +5845,7 @@ function App() {
           };
 
           const tryTriggerGenericReactions = () => {
-            if (moleculePromptRef.current || tutorialActiveRef.current) {
+            if (isAutoPromptBlocked() || tutorialActiveRef.current) {
               return;
             }
 
@@ -5899,7 +5967,7 @@ function App() {
           };
 
           const tryTriggerCarbonicAcidReaction = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -5935,7 +6003,7 @@ function App() {
           };
 
           const tryFormWaterCluster = () => {
-            if (moleculePromptRef.current) {
+            if (isAutoPromptBlocked()) {
               return;
             }
 
@@ -6066,6 +6134,34 @@ function App() {
                 sourceMolecules.length !== currentPrompt.sourceMoleculeIds.length ||
                 sourceAtoms.length !== (currentPrompt.sourceAtomIds ?? []).length ||
                 sourceAtoms.some((atom) => atom.moleculeId !== null)
+              ) {
+                setMoleculePromptState(null);
+                return;
+              }
+
+              // Cancel the offer if the reactants get dragged apart.
+              const reactantPoints = [
+                ...sourceMolecules.map((molecule) => molecule.center).filter(Boolean),
+                ...sourceAtoms.map((atom) => atom.position),
+              ];
+              const reactantCentroid = reactantPoints.reduce(
+                (sum, point) => ({
+                  x: sum.x + point.x / reactantPoints.length,
+                  y: sum.y + point.y / reactantPoints.length,
+                }),
+                { x: 0, y: 0 }
+              );
+              const cancelRangeNormalized =
+                ((REACTION_TRIGGER_RANGE_PX * getVisualScale()) /
+                  Math.min(canvas.width, canvas.height)) *
+                1.7;
+
+              if (
+                reactantPoints.some(
+                  (point) =>
+                    Math.hypot(point.x - reactantCentroid.x, point.y - reactantCentroid.y) >
+                    cancelRangeNormalized
+                )
               ) {
                 setMoleculePromptState(null);
               }
