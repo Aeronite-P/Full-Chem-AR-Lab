@@ -149,6 +149,59 @@ const GRAB_RIPPLE_REPEAT_MS = 640;
 const FORMATION_EFFECT_DURATION_MS = 1050;
 const FORMATION_SPARK_COUNT = 14;
 
+// Ion / charge visuals: cations glow warm amber, anions glow cool cyan-blue.
+const POSITIVE_CHARGE_RGB = { r: 255, g: 170, b: 64 };
+const NEGATIVE_CHARGE_RGB = { r: 90, g: 200, b: 255 };
+
+const DISCOVERABLE_MOLECULES = [
+  { formula: "H2", label: "H₂ — Hydrogen gas" },
+  { formula: "O2", label: "O₂ — Oxygen gas" },
+  { formula: "N2", label: "N₂ — Nitrogen gas" },
+  { formula: "H2O", label: "H₂O — Water" },
+  { formula: "CO", label: "CO — Carbon monoxide" },
+  { formula: "CO2", label: "CO₂ — Carbon dioxide" },
+  { formula: "NH3", label: "NH₃ — Ammonia" },
+  { formula: "CH4", label: "CH₄ — Methane" },
+  { formula: "H2CO3", label: "H₂CO₃ — Carbonic acid" },
+  { formula: "2H2O", label: "2H₂O — Water dimer" },
+  { formula: "H3O+", label: "H₃O⁺ — Hydronium" },
+  { formula: "NH4+", label: "NH₄⁺ — Ammonium" },
+  { formula: "NaCl", label: "NaCl — Table salt" },
+];
+
+const DISCOVERED_MOLECULES_STORAGE_KEY = "chemArLabDiscoveredMolecules";
+const TUTORIAL_SEEN_STORAGE_KEY = "chemArLabTutorialSeen";
+
+const TUTORIAL_TARGET_POSITION = { x: 0.3, y: 0.68 };
+const TUTORIAL_TARGET_RADIUS = 0.085;
+
+const TUTORIAL_STEPS = [
+  {
+    id: "move",
+    text: "Grab the white Hydrogen atom (pinch with your hand, or touch/click-drag it) and move it into the glowing ring.",
+  },
+  {
+    id: "menu",
+    text: "Open the atom menu — tap the MENU toggle in the Controls panel (or press M).",
+  },
+  {
+    id: "spawn",
+    text: "Spawn a second Hydrogen atom — tap “Hydrogen (H)” in the menu.",
+  },
+  {
+    id: "bondmode",
+    text: "Turn on Bonding Mode from the menu.",
+  },
+  {
+    id: "bond",
+    text: "Drag from each Hydrogen atom onto the red Oxygen atom to create two bonds.",
+  },
+  {
+    id: "water",
+    text: "The lab noticed a familiar shape — tap Yes to snap it into water!",
+  },
+];
+
 const WATER_LAYOUT_OFFSETS_PX = [
   { x: -54, y: -40 },
   { x: 54, y: -40 },
@@ -209,6 +262,7 @@ const createMolecule = ({
   snapDuration,
   originPositions,
   visualMode = "default",
+  charge = 0,
 }) => ({
   id,
   type,
@@ -224,6 +278,7 @@ const createMolecule = ({
   snapDuration,
   originPositions,
   visualMode,
+  charge,
 });
 
 const getClusterParticleOffsets = (count, maxRadiusPx) => {
@@ -381,6 +436,24 @@ function App() {
   const [atomicExpansionAtom, setAtomicExpansionAtom] = useState(null);
   const [overlayAnimationFrame, setWaterOverlayFrame] = useState(0);
   const [, setPromptedMoleculeCombos] = useState({});
+  const [discoveredFormulas, setDiscoveredFormulas] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(DISCOVERED_MOLECULES_STORAGE_KEY));
+      return Array.isArray(stored) ? stored : [];
+    } catch {
+      return [];
+    }
+  });
+  const [questOpen, setQuestOpen] = useState(false);
+  const [eventBanner, setEventBanner] = useState(null);
+  const [tutorialPromptVisible, setTutorialPromptVisible] = useState(() => {
+    try {
+      return !localStorage.getItem(TUTORIAL_SEEN_STORAGE_KEY);
+    } catch {
+      return false;
+    }
+  });
+  const [tutorialStep, setTutorialStep] = useState(null);
   const deleteModeRef = useRef(false);
   const bondingModeRef = useRef(false);
   const atomSizeScaleRef = useRef(1);
@@ -411,6 +484,16 @@ function App() {
   const effectsRef = useRef([]);
   // Touch/mouse drag state so atoms and molecules can be moved without hand tracking.
   const pointerDragRef = useRef(null);
+  const discoveredFormulasRef = useRef(null);
+  const eventBannerTimeoutRef = useRef(null);
+
+  if (discoveredFormulasRef.current === null) {
+    discoveredFormulasRef.current = discoveredFormulas;
+  }
+
+  if (import.meta.env.DEV && typeof window !== "undefined") {
+    window.__chemDebug = { atomsRef, bondsRef, moleculesRef };
+  }
 
   const spawnGrabRipple = (position, colorRgb, options = {}) => {
     const { soft = false } = options;
@@ -445,6 +528,102 @@ function App() {
 
   const getMoleculeMixedNeonRgb = (molecule) =>
     getMixedNeonRgb(getMoleculeAtoms(molecule).map((atom) => atom.type));
+
+  const showEventBanner = (banner, durationMs = 2800) => {
+    if (eventBannerTimeoutRef.current) {
+      clearTimeout(eventBannerTimeoutRef.current);
+    }
+
+    setEventBanner(banner);
+    eventBannerTimeoutRef.current = window.setTimeout(() => {
+      setEventBanner(null);
+      eventBannerTimeoutRef.current = null;
+    }, durationMs);
+  };
+
+  const celebrateAllDiscovered = () => {
+    const colors = [
+      POSITIVE_CHARGE_RGB,
+      NEGATIVE_CHARGE_RGB,
+      getAtomNeonRgb("O"),
+      getAtomNeonRgb("N"),
+      getAtomNeonRgb("Cl"),
+      getAtomNeonRgb("Na"),
+    ];
+    const positions = [
+      [0.5, 0.5],
+      [0.25, 0.3],
+      [0.75, 0.3],
+      [0.25, 0.7],
+      [0.75, 0.7],
+      [0.5, 0.18],
+      [0.5, 0.82],
+      [0.12, 0.5],
+      [0.88, 0.5],
+    ];
+
+    positions.forEach(([x, y], index) => {
+      window.setTimeout(() => {
+        spawnFormationEffect({ x, y }, colors[index % colors.length]);
+      }, index * 160);
+    });
+  };
+
+  const registerMoleculeDiscovery = (formula) => {
+    const entry = DISCOVERABLE_MOLECULES.find(
+      (discoverable) => discoverable.formula === formula
+    );
+
+    if (!entry || discoveredFormulasRef.current.includes(formula)) {
+      return;
+    }
+
+    const nextDiscovered = [...discoveredFormulasRef.current, formula];
+    discoveredFormulasRef.current = nextDiscovered;
+    setDiscoveredFormulas(nextDiscovered);
+
+    try {
+      localStorage.setItem(DISCOVERED_MOLECULES_STORAGE_KEY, JSON.stringify(nextDiscovered));
+    } catch {
+      // Storage unavailable (private browsing) — discovery still works this session.
+    }
+
+    showEventBanner({ kind: "discovery", title: "Molecule discovered!", subtitle: entry.label });
+
+    if (nextDiscovered.length === DISCOVERABLE_MOLECULES.length) {
+      window.setTimeout(() => {
+        showEventBanner(
+          {
+            kind: "all",
+            title: "All molecules discovered!",
+            subtitle: "You found every molecule in the lab 🎉",
+          },
+          5200
+        );
+        celebrateAllDiscovered();
+      }, 3000);
+    }
+  };
+
+  const markTutorialSeen = () => {
+    try {
+      localStorage.setItem(TUTORIAL_SEEN_STORAGE_KEY, "1");
+    } catch {
+      // Storage unavailable — the prompt may reappear next visit, which is fine.
+    }
+  };
+
+  const startTutorial = () => {
+    markTutorialSeen();
+    setTutorialPromptVisible(false);
+    setTutorialStep(0);
+  };
+
+  const skipTutorial = () => {
+    markTutorialSeen();
+    setTutorialPromptVisible(false);
+    setTutorialStep(null);
+  };
 
   const toggleWaterVisualMode = (moleculeId) => {
     const molecule = moleculesRef.current.find((entry) => entry.id === moleculeId);
@@ -500,16 +679,23 @@ function App() {
       return 1;
     }
 
+    // Oxygen normally makes 2 bonds; the 3rd slot is the dative bond that
+    // forms hydronium (H3O+).
     if (atomType === "O") {
-      return 2;
+      return 3;
     }
 
+    // Nitrogen normally makes 3 bonds; the 4th slot forms ammonium (NH4+).
     if (atomType === "N") {
-      return 3;
+      return 4;
     }
 
     if (atomType === "C") {
       return 4;
+    }
+
+    if (atomType === "Cl" || atomType === "Na") {
+      return 1;
     }
 
     return Number.POSITIVE_INFINITY;
@@ -550,6 +736,21 @@ function App() {
 
     if (moleculeFormula === "H2CO3") {
       return atomType === "O" ? 2 : 0;
+    }
+
+    // Hydronium: oxygen keeps 1 lone pair (pyramidal, like ammonia).
+    if (moleculeFormula === "H3O+") {
+      return atomType === "O" ? 1 : 0;
+    }
+
+    // Ammonium: nitrogen's lone pair became the 4th N-H bond.
+    if (moleculeFormula === "NH4+") {
+      return 0;
+    }
+
+    // Ionic NaCl: chloride carries a full octet (4 lone pairs); Na+ has none.
+    if (moleculeFormula === "NaCl") {
+      return atomType === "Cl" ? 4 : 0;
     }
 
     return 0;
@@ -1034,6 +1235,7 @@ function App() {
     center,
     snapStartedAt,
     visualMode = "default",
+    charge = 0,
   }) => {
     const promptAtoms = getAtomsByIds(atomIds);
     const moleculeId = nextMoleculeIdRef.current;
@@ -1067,6 +1269,7 @@ function App() {
           promptAtoms.map((atom) => [atom.id, { ...atom.position }])
         ),
         visualMode,
+        charge,
       }),
     ];
     atomsRef.current = atomsRef.current.map((atom) =>
@@ -1074,6 +1277,7 @@ function App() {
     );
 
     spawnFormationEffect(resolvedCenter, getMixedNeonRgb(promptAtoms.map((atom) => atom.type)));
+    registerMoleculeDiscovery(formula);
 
     return moleculeId;
   };
@@ -1148,6 +1352,7 @@ function App() {
 
     setPromptedComboStatus(comboKey, "accepted");
     spawnFormationEffect(center, getMixedNeonRgb(clusterAtoms.map((atom) => atom.type)));
+    registerMoleculeDiscovery("2H2O");
     return clusterId;
   };
 
@@ -1426,6 +1631,17 @@ function App() {
     }
 
     const isIntermolecularHydrogenBond = isAllowedIntermolecularHydrogenBond(startAtom, endAtom);
+
+    // Sodium is a metal: it doesn't share electrons covalently. Only allow the
+    // ionic Na-Cl pairing.
+    if (
+      enforceBondLimits &&
+      ((startAtom.type === "Na" && endAtom.type !== "Cl") ||
+        (endAtom.type === "Na" && startAtom.type !== "Cl"))
+    ) {
+      showBondLimitMessage();
+      return false;
+    }
 
     if (enforceBondLimits && !isIntermolecularHydrogenBond) {
       const startBondLimit = getAtomBondLimit(startAtom.type);
@@ -1817,6 +2033,99 @@ function App() {
       setMoleculePromptState(null);
       return;
     }
+
+    if (prompt.type === "hydronium") {
+      const oxygenAtom = availablePromptAtoms.find((atom) => atom.type === "O");
+      const hydrogenAtoms = [...availablePromptAtoms]
+        .filter((atom) => atom.type === "H")
+        .sort((left, right) => {
+          if (left.position.y !== right.position.y) {
+            return left.position.y - right.position.y;
+          }
+
+          return left.position.x - right.position.x;
+        });
+
+      if (!oxygenAtom || hydrogenAtoms.length !== 3) {
+        setMoleculePromptState(null);
+        return;
+      }
+
+      hydrogenAtoms.forEach((hydrogenAtom) => {
+        setBondType(oxygenAtom.id, hydrogenAtom.id, "single");
+      });
+
+      buildMoleculeRecord({
+        type: "hydronium",
+        displayLabel: "H3O⁺",
+        formula: "H3O+",
+        atomIds: [oxygenAtom.id, ...hydrogenAtoms.map((atom) => atom.id)],
+        center: { ...oxygenAtom.position },
+        snapStartedAt: performance.now(),
+        charge: 1,
+      });
+      setPromptedComboStatus(prompt.comboKey, "accepted");
+      setMoleculePromptState(null);
+      return;
+    }
+
+    if (prompt.type === "ammonium") {
+      const nitrogenAtom = availablePromptAtoms.find((atom) => atom.type === "N");
+      const hydrogenAtoms = [...availablePromptAtoms]
+        .filter((atom) => atom.type === "H")
+        .sort((left, right) => {
+          if (left.position.y !== right.position.y) {
+            return left.position.y - right.position.y;
+          }
+
+          return left.position.x - right.position.x;
+        });
+
+      if (!nitrogenAtom || hydrogenAtoms.length !== 4) {
+        setMoleculePromptState(null);
+        return;
+      }
+
+      hydrogenAtoms.forEach((hydrogenAtom) => {
+        setBondType(nitrogenAtom.id, hydrogenAtom.id, "single");
+      });
+
+      buildMoleculeRecord({
+        type: "ammonium",
+        displayLabel: "NH4⁺",
+        formula: "NH4+",
+        atomIds: [nitrogenAtom.id, ...hydrogenAtoms.map((atom) => atom.id)],
+        center: { ...nitrogenAtom.position },
+        snapStartedAt: performance.now(),
+        charge: 1,
+      });
+      setPromptedComboStatus(prompt.comboKey, "accepted");
+      setMoleculePromptState(null);
+      return;
+    }
+
+    if (prompt.type === "sodiumChloride") {
+      const sodiumAtom = availablePromptAtoms.find((atom) => atom.type === "Na");
+      const chlorineAtom = availablePromptAtoms.find((atom) => atom.type === "Cl");
+
+      if (!sodiumAtom || !chlorineAtom) {
+        setMoleculePromptState(null);
+        return;
+      }
+
+      setBondType(sodiumAtom.id, chlorineAtom.id, "single");
+      buildMoleculeRecord({
+        type: "sodiumChloride",
+        displayLabel: "NaCl",
+        formula: "NaCl",
+        atomIds: [sodiumAtom.id, chlorineAtom.id],
+        center: getAtomGroupCenter(promptAtoms),
+        snapStartedAt: performance.now(),
+      });
+      setPromptedComboStatus(prompt.comboKey, "accepted");
+      setMoleculePromptState(null);
+      return;
+    }
   };
 
   const declineMoleculeFormation = (prompt) => {
@@ -1871,12 +2180,25 @@ function App() {
     };
   };
 
-  const findAtomIndexAtCanvasPoint = (canvasX, canvasY, hitRadius = getScaledAtomRadiusPx()) =>
-    atomsRef.current.findIndex(({ position }) => {
+  // Nearest atom within the hit radius wins (not first-in-array), so
+  // overlapping atoms resolve to the one the user actually aimed at.
+  const findAtomIndexAtCanvasPoint = (canvasX, canvasY, hitRadius = getScaledAtomRadiusPx()) => {
+    let bestIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    atomsRef.current.forEach(({ position }, index) => {
       const atomX = position.x * canvasRef.current.width;
       const atomY = position.y * canvasRef.current.height;
-      return Math.hypot(canvasX - atomX, canvasY - atomY) <= hitRadius;
+      const distance = Math.hypot(canvasX - atomX, canvasY - atomY);
+
+      if (distance <= hitRadius && distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
     });
+
+    return bestIndex;
+  };
 
   const handleAtomSizeScaleChange = (event) => {
     const nextValue = Number(event.target.value);
@@ -2605,12 +2927,13 @@ function App() {
               molecule.formula === "H2" ||
               molecule.formula === "O2" ||
               molecule.formula === "N2" ||
-              molecule.formula === "CO"
+              molecule.formula === "CO" ||
+              molecule.formula === "NaCl"
             ) {
               return null;
             }
 
-            if (molecule.formula === "H2O") {
+            if (molecule.formula === "H2O" || molecule.formula === "H3O+") {
               return moleculeAtoms.find((atom) => atom.type === "O") ?? moleculeAtoms[0];
             }
 
@@ -2622,7 +2945,7 @@ function App() {
               return moleculeAtoms.find((atom) => atom.type === "C") ?? moleculeAtoms[0];
             }
 
-            if (molecule.formula === "NH3") {
+            if (molecule.formula === "NH3" || molecule.formula === "NH4+") {
               return moleculeAtoms.find((atom) => atom.type === "N") ?? moleculeAtoms[0];
             }
 
@@ -2738,6 +3061,24 @@ function App() {
                   radialDirection: direction,
                 },
               ];
+            }
+
+            if (lonePairCount === 4) {
+              const outwardDirection = neighborDirections[0]
+                ? { x: -neighborDirections[0].x, y: -neighborDirections[0].y }
+                : { x: 0, y: -1 };
+
+              return [0, Math.PI / 2, Math.PI, -Math.PI / 2].map((rotation) => {
+                const direction = normalizeVector(rotateVector(outwardDirection, rotation));
+
+                return {
+                  center: {
+                    x: atomCenter.x + direction.x * baseDistance,
+                    y: atomCenter.y + direction.y * baseDistance,
+                  },
+                  radialDirection: direction,
+                };
+              });
             }
 
             if (
@@ -3020,6 +3361,58 @@ function App() {
               hydrogenAtoms.forEach((hydrogenAtom) => {
                 drawBondStick(nitrogenAtom.position, hydrogenAtom.position, 0.88, 0, ["N", "H"]);
               });
+            }
+
+            if (molecule.formula === "H3O+") {
+              const oxygenAtom = getAtomById(molecule.atomIds[0]);
+              const hydrogenAtoms = molecule.atomIds
+                .slice(1)
+                .map((atomId) => getAtomById(atomId))
+                .filter(Boolean);
+
+              if (!oxygenAtom || hydrogenAtoms.length !== 3) {
+                return;
+              }
+
+              hydrogenAtoms.forEach((hydrogenAtom) => {
+                drawBondStick(oxygenAtom.position, hydrogenAtom.position, 0.88, 0, ["O", "H"]);
+              });
+            }
+
+            if (molecule.formula === "NH4+") {
+              const nitrogenAtom = getAtomById(molecule.atomIds[0]);
+              const hydrogenAtoms = molecule.atomIds
+                .slice(1)
+                .map((atomId) => getAtomById(atomId))
+                .filter(Boolean);
+
+              if (!nitrogenAtom || hydrogenAtoms.length !== 4) {
+                return;
+              }
+
+              hydrogenAtoms.forEach((hydrogenAtom) => {
+                drawBondStick(nitrogenAtom.position, hydrogenAtom.position, 0.88, 0, ["N", "H"]);
+              });
+            }
+
+            if (molecule.formula === "NaCl") {
+              const sodiumAtom = getAtomById(molecule.atomIds[0]);
+              const chlorineAtom = getAtomById(molecule.atomIds[1]);
+
+              if (!sodiumAtom || !chlorineAtom) {
+                return;
+              }
+
+              // Ionic "bond": electrostatic attraction, not a shared pair —
+              // drawn dashed to distinguish it from covalent sticks.
+              context.save();
+              context.setLineDash([5, 7]);
+              context.strokeStyle = "rgba(226, 232, 240, 0.75)";
+              context.lineWidth = 2.4 * getVisualScale();
+              context.shadowColor = "rgba(226, 232, 240, 0.3)";
+              context.shadowBlur = 7;
+              drawBondStick(sodiumAtom.position, chlorineAtom.position, 0.95);
+              context.restore();
             }
 
             if (molecule.formula === "H2CO3") {
@@ -4116,6 +4509,159 @@ function App() {
             }
           };
 
+          const tryFormHydroniumMolecules = () => {
+            if (moleculePromptRef.current) {
+              return;
+            }
+
+            const { atomById, adjacency } = getUnmoleculedBondAdjacency();
+
+            for (const componentAtoms of getBondedComponents(atomById, adjacency)) {
+              if (componentAtoms.length !== 4) {
+                continue;
+              }
+
+              const oxygenAtoms = componentAtoms.filter(({ type }) => type === "O");
+              const hydrogenAtoms = componentAtoms.filter(({ type }) => type === "H");
+
+              if (oxygenAtoms.length !== 1 || hydrogenAtoms.length !== 3) {
+                continue;
+              }
+
+              const oxygenAtom = oxygenAtoms[0];
+              const oxygenNeighbors = adjacency.get(oxygenAtom.id) ?? [];
+
+              if (
+                oxygenNeighbors.length !== 3 ||
+                !hydrogenAtoms.every((hydrogenAtom) => oxygenNeighbors.includes(hydrogenAtom.id))
+              ) {
+                continue;
+              }
+
+              if (
+                hydrogenAtoms.some(
+                  (hydrogenAtom) =>
+                    (adjacency.get(hydrogenAtom.id) ?? []).some(
+                      (neighborAtomId) => neighborAtomId !== oxygenAtom.id
+                    )
+                )
+              ) {
+                continue;
+              }
+
+              const atomIds = [oxygenAtom.id, ...hydrogenAtoms.map(({ id }) => id)];
+              const comboKey = getMoleculeComboKey(atomIds);
+
+              if (promptedMoleculeCombosRef.current[comboKey]) {
+                continue;
+              }
+
+              setPromptedComboStatus(comboKey, "prompted");
+              setMoleculePromptState({
+                type: "hydronium",
+                displayLabel: "H3O⁺",
+                comboKey,
+                atomIds,
+              });
+              return;
+            }
+          };
+
+          const tryFormAmmoniumMolecules = () => {
+            if (moleculePromptRef.current) {
+              return;
+            }
+
+            const { atomById, adjacency } = getUnmoleculedBondAdjacency();
+
+            for (const componentAtoms of getBondedComponents(atomById, adjacency)) {
+              if (componentAtoms.length !== 5) {
+                continue;
+              }
+
+              const nitrogenAtoms = componentAtoms.filter(({ type }) => type === "N");
+              const hydrogenAtoms = componentAtoms.filter(({ type }) => type === "H");
+
+              if (nitrogenAtoms.length !== 1 || hydrogenAtoms.length !== 4) {
+                continue;
+              }
+
+              const nitrogenAtom = nitrogenAtoms[0];
+              const nitrogenNeighbors = adjacency.get(nitrogenAtom.id) ?? [];
+
+              if (
+                nitrogenNeighbors.length !== 4 ||
+                !hydrogenAtoms.every((hydrogenAtom) => nitrogenNeighbors.includes(hydrogenAtom.id))
+              ) {
+                continue;
+              }
+
+              if (
+                hydrogenAtoms.some(
+                  (hydrogenAtom) =>
+                    (adjacency.get(hydrogenAtom.id) ?? []).some(
+                      (neighborAtomId) => neighborAtomId !== nitrogenAtom.id
+                    )
+                )
+              ) {
+                continue;
+              }
+
+              const atomIds = [nitrogenAtom.id, ...hydrogenAtoms.map(({ id }) => id)];
+              const comboKey = getMoleculeComboKey(atomIds);
+
+              if (promptedMoleculeCombosRef.current[comboKey]) {
+                continue;
+              }
+
+              setPromptedComboStatus(comboKey, "prompted");
+              setMoleculePromptState({
+                type: "ammonium",
+                displayLabel: "NH4⁺",
+                comboKey,
+                atomIds,
+              });
+              return;
+            }
+          };
+
+          const tryFormSodiumChlorideMolecules = () => {
+            if (moleculePromptRef.current) {
+              return;
+            }
+
+            const { atomById, adjacency } = getUnmoleculedBondAdjacency();
+
+            for (const componentAtoms of getBondedComponents(atomById, adjacency)) {
+              if (componentAtoms.length !== 2) {
+                continue;
+              }
+
+              const sodiumAtoms = componentAtoms.filter(({ type }) => type === "Na");
+              const chlorineAtoms = componentAtoms.filter(({ type }) => type === "Cl");
+
+              if (sodiumAtoms.length !== 1 || chlorineAtoms.length !== 1) {
+                continue;
+              }
+
+              const atomIds = [sodiumAtoms[0].id, chlorineAtoms[0].id];
+              const comboKey = getMoleculeComboKey(atomIds);
+
+              if (promptedMoleculeCombosRef.current[comboKey]) {
+                continue;
+              }
+
+              setPromptedComboStatus(comboKey, "prompted");
+              setMoleculePromptState({
+                type: "sodiumChloride",
+                displayLabel: "NaCl",
+                comboKey,
+                atomIds,
+              });
+              return;
+            }
+          };
+
           const tryTriggerCarbonicAcidReaction = () => {
             if (moleculePromptRef.current) {
               return;
@@ -4363,6 +4909,42 @@ function App() {
               )
             ) {
               setMoleculePromptState(null);
+              return;
+            }
+
+            if (
+              currentPrompt.type === "hydronium" &&
+              (
+                promptAtoms.length !== 4 ||
+                promptAtoms.filter((atom) => atom.type === "O").length !== 1 ||
+                promptAtoms.filter((atom) => atom.type === "H").length !== 3
+              )
+            ) {
+              setMoleculePromptState(null);
+              return;
+            }
+
+            if (
+              currentPrompt.type === "ammonium" &&
+              (
+                promptAtoms.length !== 5 ||
+                promptAtoms.filter((atom) => atom.type === "N").length !== 1 ||
+                promptAtoms.filter((atom) => atom.type === "H").length !== 4
+              )
+            ) {
+              setMoleculePromptState(null);
+              return;
+            }
+
+            if (
+              currentPrompt.type === "sodiumChloride" &&
+              (
+                promptAtoms.length !== 2 ||
+                promptAtoms.filter((atom) => atom.type === "Na").length !== 1 ||
+                promptAtoms.filter((atom) => atom.type === "Cl").length !== 1
+              )
+            ) {
+              setMoleculePromptState(null);
             }
           };
 
@@ -4542,7 +5124,8 @@ function App() {
               if (
                 molecule.formula === "H2" ||
                 molecule.formula === "O2" ||
-                molecule.formula === "N2"
+                molecule.formula === "N2" ||
+                molecule.formula === "NaCl"
               ) {
                 const leftAtom = getAtomById(molecule.atomIds[0]);
                 const rightAtom = getAtomById(molecule.atomIds[1]);
@@ -4579,7 +5162,7 @@ function App() {
                 });
               }
 
-              if (molecule.formula === "CH4") {
+              if (molecule.formula === "CH4" || molecule.formula === "NH4+") {
                 const carbonAtom = getAtomById(molecule.atomIds[0]);
                 const hydrogenAtoms = molecule.atomIds
                   .slice(1)
@@ -4593,7 +5176,11 @@ function App() {
                     return left.position.x - right.position.x;
                   });
 
-                if (!carbonAtom || carbonAtom.type !== "C" || hydrogenAtoms.length !== 4) {
+                if (
+                  !carbonAtom ||
+                  (carbonAtom.type !== "C" && carbonAtom.type !== "N") ||
+                  hydrogenAtoms.length !== 4
+                ) {
                   continue;
                 }
 
@@ -4621,7 +5208,7 @@ function App() {
                 });
               }
 
-              if (molecule.formula === "NH3") {
+              if (molecule.formula === "NH3" || molecule.formula === "H3O+") {
                 const nitrogenAtom = getAtomById(molecule.atomIds[0]);
                 const hydrogenAtoms = molecule.atomIds
                   .slice(1)
@@ -4635,7 +5222,11 @@ function App() {
                     return left.position.x - right.position.x;
                   });
 
-                if (!nitrogenAtom || nitrogenAtom.type !== "N" || hydrogenAtoms.length !== 3) {
+                if (
+                  !nitrogenAtom ||
+                  (nitrogenAtom.type !== "N" && nitrogenAtom.type !== "O") ||
+                  hydrogenAtoms.length !== 3
+                ) {
                   continue;
                 }
 
@@ -4730,19 +5321,20 @@ function App() {
                   molecule.formula === "CO" ||
                   molecule.formula === "H2" ||
                   molecule.formula === "O2" ||
-                  molecule.formula === "N2"
+                  molecule.formula === "N2" ||
+                  molecule.formula === "NaCl"
                 ) {
                   layoutDiatomicMolecule(
                     molecule,
                     molecule.center ?? getAtomGroupCenter(getMoleculeAtoms(molecule))
                   );
-                } else if (molecule.formula === "CH4") {
+                } else if (molecule.formula === "CH4" || molecule.formula === "NH4+") {
                   const carbonAtom = getAtomById(molecule.atomIds[0]);
 
                   if (carbonAtom) {
                     layoutMethaneMolecule(molecule, atomMap.get(carbonAtom.id) ?? carbonAtom);
                   }
-                } else if (molecule.formula === "NH3") {
+                } else if (molecule.formula === "NH3" || molecule.formula === "H3O+") {
                   const nitrogenAtom = getAtomById(molecule.atomIds[0]);
 
                   if (nitrogenAtom) {
@@ -5525,6 +6117,9 @@ function App() {
           tryFormCarbonDioxideMolecules();
           tryFormAmmoniaMolecules();
           tryFormMethaneMolecules();
+          tryFormHydroniumMolecules();
+          tryFormAmmoniumMolecules();
+          tryFormSodiumChlorideMolecules();
           tryTriggerCarbonicAcidReaction();
           tryFormWaterCluster();
           animateMolecules();
@@ -5777,6 +6372,42 @@ function App() {
             }
 
             if (
+              molecule.formula === "H3O+" &&
+              (
+                moleculeAtoms.length !== 4 ||
+                moleculeAtoms.filter((atom) => atom.type === "O").length !== 1 ||
+                moleculeAtoms.filter((atom) => atom.type === "H").length !== 3
+              )
+            ) {
+              releaseMolecule(molecule.id);
+              continue;
+            }
+
+            if (
+              molecule.formula === "NH4+" &&
+              (
+                moleculeAtoms.length !== 5 ||
+                moleculeAtoms.filter((atom) => atom.type === "N").length !== 1 ||
+                moleculeAtoms.filter((atom) => atom.type === "H").length !== 4
+              )
+            ) {
+              releaseMolecule(molecule.id);
+              continue;
+            }
+
+            if (
+              molecule.formula === "NaCl" &&
+              (
+                moleculeAtoms.length !== 2 ||
+                moleculeAtoms.filter((atom) => atom.type === "Na").length !== 1 ||
+                moleculeAtoms.filter((atom) => atom.type === "Cl").length !== 1
+              )
+            ) {
+              releaseMolecule(molecule.id);
+              continue;
+            }
+
+            if (
               molecule.formula === "H2CO3" &&
               (
                 moleculeAtoms.length !== 6 ||
@@ -5816,7 +6447,10 @@ function App() {
               molecule.formula !== "CH4" &&
               molecule.formula !== "NH3" &&
               molecule.formula !== "H2CO3" &&
-              molecule.formula !== "2H2O"
+              molecule.formula !== "2H2O" &&
+              molecule.formula !== "H3O+" &&
+              molecule.formula !== "NH4+" &&
+              molecule.formula !== "NaCl"
             ) {
               continue;
             }
@@ -5845,7 +6479,12 @@ function App() {
             context.save();
             context.translate(labelX, labelY);
             context.scale(-1, 1);
-            if (molecule.formula === "H2O" || molecule.formula === "2H2O") {
+            if ((molecule.charge ?? 0) !== 0) {
+              const chargeRgb = molecule.charge > 0 ? POSITIVE_CHARGE_RGB : NEGATIVE_CHARGE_RGB;
+              context.fillStyle = rgbToCss(chargeRgb, 0.95);
+              context.shadowColor = rgbToCss(chargeRgb, 0.65);
+              context.shadowBlur = 7;
+            } else if (molecule.formula === "H2O" || molecule.formula === "2H2O") {
               const waterLabelGradient = context.createLinearGradient(-34, -10, 34, 10);
               waterLabelGradient.addColorStop(0, "rgba(190, 245, 255, 0.78)");
               waterLabelGradient.addColorStop(0.5, "rgba(127, 231, 255, 0.9)");
@@ -5888,9 +6527,28 @@ function App() {
             const atomScale = (atomAnimationScales.get(atomId) ?? 1) * (isGrabbed ? 1.06 : 1);
             const drawRadius = atomRadius * atomScale;
             const neonRgb = getAtomNeonRgb(type);
+            // Charged species tint their atoms: amber for cations, cyan for anions.
+            // NaCl is neutral overall but ionic, so each ion gets its own tint.
+            const moleculeCharge = parentMolecule?.charge ?? 0;
+            const perAtomIonCharge =
+              parentMolecule?.formula === "NaCl"
+                ? type === "Na"
+                  ? 1
+                  : type === "Cl"
+                    ? -1
+                    : 0
+                : 0;
+            const chargeValue = moleculeCharge !== 0 ? moleculeCharge : perAtomIonCharge;
+            const auraRgb =
+              chargeValue > 0
+                ? POSITIVE_CHARGE_RGB
+                : chargeValue < 0
+                  ? NEGATIVE_CHARGE_RGB
+                  : neonRgb;
 
             // Soft neon aura behind every atom; brighter while grabbed or forming.
-            const auraStrength = isForming ? 0.5 : isGrabbed ? 0.4 : 0.16;
+            const auraStrength =
+              isForming ? 0.5 : isGrabbed ? 0.4 : chargeValue !== 0 ? 0.3 : 0.16;
             const auraRadius = drawRadius * (isGrabbed || isForming ? 1.9 : 1.55);
             const auraGradient = context.createRadialGradient(
               atomX,
@@ -5900,8 +6558,8 @@ function App() {
               atomY,
               auraRadius
             );
-            auraGradient.addColorStop(0, rgbToCss(neonRgb, auraStrength));
-            auraGradient.addColorStop(1, rgbToCss(neonRgb, 0));
+            auraGradient.addColorStop(0, rgbToCss(auraRgb, auraStrength));
+            auraGradient.addColorStop(1, rgbToCss(auraRgb, 0));
 
             context.beginPath();
             context.arc(atomX, atomY, auraRadius, 0, Math.PI * 2);
@@ -5924,7 +6582,7 @@ function App() {
             context.save();
 
             if (isGrabbed || isForming) {
-              context.shadowColor = rgbToCss(neonRgb, 0.75);
+              context.shadowColor = rgbToCss(auraRgb, 0.75);
               context.shadowBlur = 22 * getVisualScale();
             }
 
@@ -5963,9 +6621,30 @@ function App() {
             context.save();
             context.beginPath();
             context.arc(atomX, atomY, drawRadius - 0.6, 0, Math.PI * 2);
-            context.strokeStyle = rgbToCss(neonRgb, isGrabbed ? 0.85 : 0.42);
+            context.strokeStyle = rgbToCss(auraRgb, isGrabbed ? 0.85 : chargeValue !== 0 ? 0.6 : 0.42);
             context.lineWidth = 1.6 * getVisualScale();
             context.stroke();
+
+            // Charge badge for the ions in NaCl (Na+ / Cl-).
+            if (perAtomIonCharge !== 0) {
+              context.save();
+              context.translate(atomX - drawRadius * 0.95, atomY - drawRadius * 0.95);
+              context.scale(-1, 1);
+              context.fillStyle = rgbToCss(
+                perAtomIonCharge > 0 ? POSITIVE_CHARGE_RGB : NEGATIVE_CHARGE_RGB,
+                0.95
+              );
+              context.font = `700 ${Math.max(10, drawRadius * 0.55)}px system-ui`;
+              context.textAlign = "center";
+              context.textBaseline = "middle";
+              context.shadowColor = rgbToCss(
+                perAtomIonCharge > 0 ? POSITIVE_CHARGE_RGB : NEGATIVE_CHARGE_RGB,
+                0.7
+              );
+              context.shadowBlur = 8;
+              context.fillText(perAtomIonCharge > 0 ? "+" : "−", 0, 0);
+              context.restore();
+            }
 
             context.beginPath();
             context.arc(
@@ -6205,7 +6884,130 @@ function App() {
     if (atomicExpansionCollapseTimeoutRef.current) {
       clearTimeout(atomicExpansionCollapseTimeoutRef.current);
     }
+
+    if (eventBannerTimeoutRef.current) {
+      clearTimeout(eventBannerTimeoutRef.current);
+    }
   }, []);
+
+  // Tutorial progression: polls the ref-backed simulation state for the
+  // current step's completion condition.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (tutorialStep === null) {
+      return undefined;
+    }
+
+    let advanced = false;
+
+    const advance = () => {
+      if (advanced) {
+        return;
+      }
+
+      advanced = true;
+
+      if (tutorialStep + 1 >= TUTORIAL_STEPS.length) {
+        setTutorialStep(null);
+        showEventBanner(
+          {
+            kind: "tutorial",
+            title: "Tutorial complete!",
+            subtitle: "You built water from scratch — the lab is yours 🎉",
+          },
+          4200
+        );
+        spawnFormationEffect({ x: 0.5, y: 0.42 }, getAtomNeonRgb("O"));
+      } else {
+        setTutorialStep(tutorialStep + 1);
+      }
+    };
+
+    const check = () => {
+      const stepId = TUTORIAL_STEPS[tutorialStep].id;
+
+      if (stepId === "move") {
+        const reachedTarget = atomsRef.current.some(
+          (atom) =>
+            atom.type === "H" &&
+            atom.moleculeId === null &&
+            Math.hypot(
+              atom.position.x - TUTORIAL_TARGET_POSITION.x,
+              atom.position.y - TUTORIAL_TARGET_POSITION.y
+            ) <= TUTORIAL_TARGET_RADIUS
+        );
+
+        if (reachedTarget) {
+          advance();
+        }
+        return;
+      }
+
+      if (stepId === "menu") {
+        if (menuOpen) {
+          advance();
+        }
+        return;
+      }
+
+      if (stepId === "spawn") {
+        if (atomsRef.current.filter((atom) => atom.type === "H").length >= 2) {
+          advance();
+        }
+        return;
+      }
+
+      if (stepId === "bondmode") {
+        if (bondingMode) {
+          advance();
+        }
+        return;
+      }
+
+      if (stepId === "bond") {
+        const hasWaterShape =
+          moleculePromptRef.current?.type === "water" ||
+          moleculesRef.current.some((molecule) => molecule.formula === "H2O") ||
+          atomsRef.current.some((atom) => {
+            if (atom.type !== "O") {
+              return false;
+            }
+
+            const hydrogenBondCount = bondsRef.current.filter((bond) => {
+              const [leftAtomId, rightAtomId] = getBondAtomIds(bond);
+              const otherAtomId =
+                leftAtomId === atom.id ? rightAtomId : rightAtomId === atom.id ? leftAtomId : null;
+
+              if (otherAtomId === null) {
+                return false;
+              }
+
+              return atomsRef.current.find((entry) => entry.id === otherAtomId)?.type === "H";
+            }).length;
+
+            return hydrogenBondCount >= 2;
+          });
+
+        if (hasWaterShape) {
+          advance();
+        }
+        return;
+      }
+
+      if (stepId === "water") {
+        if (moleculesRef.current.some((molecule) => molecule.formula === "H2O")) {
+          advance();
+        }
+      }
+    };
+
+    check();
+    const timer = window.setInterval(check, 350);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [tutorialStep, menuOpen, bondingMode]);
 
   useEffect(() => {
     let animationFrameId = 0;
@@ -6291,9 +7093,70 @@ function App() {
           100% { transform: translate(-50%, -50%) rotate(360deg); }
         }
 
+        @keyframes eventBannerPop {
+          0% { opacity: 0; transform: translate(-50%, -16px) scale(0.9); }
+          10% { opacity: 1; transform: translate(-50%, 0) scale(1.04); }
+          16% { transform: translate(-50%, 0) scale(1); }
+          84% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+          100% { opacity: 0; transform: translate(-50%, -10px) scale(0.97); }
+        }
+
+        @keyframes tutorialTargetPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(103, 232, 249, 0.4); opacity: 0.95; }
+          50% { box-shadow: 0 0 26px 8px rgba(103, 232, 249, 0.22); opacity: 0.55; }
+        }
+
+        @keyframes auroraDrift1 {
+          from { transform: translate3d(0, 0, 0) scale(1); }
+          to { transform: translate3d(6vw, 4vh, 0) scale(1.16); }
+        }
+
+        @keyframes auroraDrift2 {
+          from { transform: translate3d(0, 0, 0) scale(1.12); }
+          to { transform: translate3d(-5vw, -5vh, 0) scale(0.94); }
+        }
+
+        .bg-aurora {
+          position: fixed;
+          border-radius: 999px;
+          filter: blur(90px);
+          pointer-events: none;
+          z-index: 0;
+          opacity: 0.55;
+        }
+
+        .bg-aurora-1 {
+          width: 46vw;
+          height: 46vw;
+          left: -12vw;
+          top: -10vw;
+          background: radial-gradient(circle, rgba(56, 189, 248, 0.2) 0%, rgba(56, 189, 248, 0) 65%);
+          animation: auroraDrift1 26s ease-in-out infinite alternate;
+        }
+
+        .bg-aurora-2 {
+          width: 52vw;
+          height: 52vw;
+          right: -16vw;
+          bottom: -14vw;
+          background: radial-gradient(circle, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0) 65%);
+          animation: auroraDrift2 32s ease-in-out infinite alternate;
+        }
+
+        .bg-aurora-3 {
+          width: 32vw;
+          height: 32vw;
+          left: 36vw;
+          top: 56vh;
+          background: radial-gradient(circle, rgba(45, 212, 191, 0.1) 0%, rgba(45, 212, 191, 0) 65%);
+          animation: auroraDrift1 40s ease-in-out infinite alternate-reverse;
+        }
+
         .app-shell {
           width: min(100%, 1320px);
           margin: 0 auto;
+          position: relative;
+          z-index: 1;
         }
 
         .camera-layout {
@@ -6317,6 +7180,11 @@ function App() {
           margin: 0;
           font-size: clamp(1.4rem, 2.8vw, 2rem);
           line-height: 1.1;
+          background: linear-gradient(92deg, #e0f2fe 0%, #7dd3fc 48%, #c4b5fd 100%);
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          text-shadow: 0 0 26px rgba(125, 211, 252, 0.16);
         }
 
         .panel-card {
@@ -6350,6 +7218,11 @@ function App() {
           width: min(100%, 760px);
           aspect-ratio: 4 / 3;
           margin: 0 auto;
+          border-radius: 14px;
+          box-shadow:
+            0 0 0 1px rgba(125, 211, 252, 0.16),
+            0 14px 52px rgba(2, 132, 199, 0.16),
+            0 0 110px rgba(56, 189, 248, 0.09);
         }
 
         @media (max-width: 1100px) {
@@ -6399,6 +7272,9 @@ function App() {
           }
         }
       `}</style>
+      <div aria-hidden="true" className="bg-aurora bg-aurora-1" />
+      <div aria-hidden="true" className="bg-aurora bg-aurora-2" />
+      <div aria-hidden="true" className="bg-aurora bg-aurora-3" />
       <div className="app-shell">
       <div
         aria-hidden="true"
@@ -6492,6 +7368,78 @@ function App() {
           />
           <span>Show Lone Pairs</span>
         </label>
+        <div
+          style={{
+            marginTop: "clamp(12px, 1.8vw, 14px)",
+            paddingTop: "clamp(10px, 1.6vw, 12px)",
+            borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+          }}
+        >
+          <div style={{ fontSize: "clamp(12px, 1.4vw, 13px)", fontWeight: 700, marginBottom: "8px" }}>
+            📘 Tutorial
+          </div>
+          {tutorialStep === null ? (
+            <button
+              type="button"
+              onClick={startTutorial}
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                borderRadius: "10px",
+                border: "1px solid rgba(125, 211, 252, 0.3)",
+                background: "rgba(14, 116, 144, 0.2)",
+                color: "#d9faff",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: "clamp(11px, 1.3vw, 12px)",
+              }}
+            >
+              Start Tutorial
+            </button>
+          ) : (
+            <div>
+              <div
+                style={{
+                  fontSize: "clamp(10px, 1.2vw, 11px)",
+                  color: "#7dd3fc",
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                Step {tutorialStep + 1} of {TUTORIAL_STEPS.length}
+              </div>
+              <div
+                style={{
+                  marginTop: "6px",
+                  fontSize: "clamp(11px, 1.3vw, 12px)",
+                  lineHeight: 1.5,
+                  color: "rgba(255, 255, 255, 0.92)",
+                }}
+              >
+                {TUTORIAL_STEPS[tutorialStep].text}
+              </div>
+              <button
+                type="button"
+                onClick={skipTutorial}
+                style={{
+                  marginTop: "10px",
+                  width: "100%",
+                  padding: "6px 10px",
+                  borderRadius: "9px",
+                  border: "1px solid rgba(255, 255, 255, 0.16)",
+                  background: "rgba(255, 255, 255, 0.06)",
+                  color: "rgba(255, 255, 255, 0.75)",
+                  cursor: "pointer",
+                  fontSize: "clamp(10px, 1.2vw, 11px)",
+                  fontWeight: 600,
+                }}
+              >
+                Skip Tutorial
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       <div
         className="control-panel panel-card"
@@ -6651,6 +7599,34 @@ function App() {
               >
                 Nitrogen (N)
               </button>
+              <button
+                type="button"
+                onClick={() => spawnAtom("Cl")}
+                style={{
+                  padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                  borderRadius: "10px",
+                  border: "1px solid rgba(255, 255, 255, 0.14)",
+                  background: "rgba(255, 255, 255, 0.08)",
+                  color: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Chlorine (Cl)
+              </button>
+              <button
+                type="button"
+                onClick={() => spawnAtom("Na")}
+                style={{
+                  padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                  borderRadius: "10px",
+                  border: "1px solid rgba(255, 255, 255, 0.14)",
+                  background: "rgba(255, 255, 255, 0.08)",
+                  color: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Sodium (Na)
+              </button>
             </div>
           </div>
         ) : null}
@@ -6711,6 +7687,83 @@ function App() {
               </div>
             )}
           </div>
+          <div
+            style={{
+              padding: "clamp(10px, 1.6vw, 12px) clamp(12px, 1.8vw, 14px)",
+              borderRadius: "12px",
+              background: "rgba(255, 255, 255, 0.05)",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setQuestOpen((current) => !current)}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+                padding: 0,
+                border: "none",
+                background: "transparent",
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "clamp(11px, 1.4vw, 12px)",
+                  opacity: 0.85,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  fontWeight: 700,
+                }}
+              >
+                🧪 Discoveries ({discoveredFormulas.length}/{DISCOVERABLE_MOLECULES.length})
+              </span>
+              <span style={{ fontSize: "12px", opacity: 0.7 }}>{questOpen ? "▲" : "▼"}</span>
+            </button>
+            {questOpen ? (
+              <div
+                style={{
+                  marginTop: "10px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "5px",
+                  maxHeight: "230px",
+                  overflowY: "auto",
+                }}
+              >
+                {DISCOVERABLE_MOLECULES.map((discoverable) => {
+                  const isFound = discoveredFormulas.includes(discoverable.formula);
+
+                  return (
+                    <div
+                      key={discoverable.formula}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "8px",
+                        padding: "5px 8px",
+                        borderRadius: "8px",
+                        fontSize: "clamp(11px, 1.3vw, 12px)",
+                        background: isFound ? "rgba(34, 197, 94, 0.1)" : "rgba(255, 255, 255, 0.03)",
+                        border: isFound
+                          ? "1px solid rgba(134, 239, 172, 0.22)"
+                          : "1px solid rgba(255, 255, 255, 0.05)",
+                        color: isFound ? "#bbf7d0" : "rgba(255, 255, 255, 0.42)",
+                      }}
+                    >
+                      <span>{isFound ? discoverable.label : "??? — undiscovered"}</span>
+                      {isFound ? <span style={{ fontWeight: 800 }}>✓</span> : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
           {selectedAtomDetails ? (
             <div
               style={{
@@ -6769,6 +7822,151 @@ function App() {
             onPointerCancel={handleViewportPointerLeave}
             style={{ touchAction: "none" }}
           >
+        {tutorialPromptVisible ? (
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(2, 6, 23, 0.6)",
+              backdropFilter: "blur(5px)",
+              borderRadius: "12px",
+            }}
+          >
+            <div
+              style={{
+                width: "min(340px, calc(100% - 32px))",
+                padding: "clamp(16px, 3vw, 22px)",
+                borderRadius: "16px",
+                background: "linear-gradient(180deg, rgba(15, 23, 42, 0.94) 0%, rgba(2, 6, 23, 0.92) 100%)",
+                border: "1px solid rgba(125, 211, 252, 0.32)",
+                boxShadow: "0 18px 44px rgba(2, 6, 23, 0.5), 0 0 40px rgba(56, 189, 248, 0.12)",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: "clamp(15px, 2.2vw, 18px)", fontWeight: 800 }}>
+                👋 Welcome to Chem AR Lab!
+              </div>
+              <div
+                style={{
+                  marginTop: "8px",
+                  fontSize: "clamp(12px, 1.5vw, 13px)",
+                  lineHeight: 1.55,
+                  opacity: 0.85,
+                }}
+              >
+                Would you like a quick tutorial? It walks you through moving atoms, spawning new
+                ones, and building your first molecule.
+              </div>
+              <div style={{ marginTop: "14px", display: "flex", gap: "10px", justifyContent: "center" }}>
+                <button
+                  type="button"
+                  onClick={startTutorial}
+                  style={{
+                    minWidth: "110px",
+                    padding: "9px 14px",
+                    borderRadius: "999px",
+                    border: "1px solid rgba(125, 211, 252, 0.45)",
+                    background: "rgba(14, 116, 144, 0.35)",
+                    color: "#d9faff",
+                    cursor: "pointer",
+                    fontWeight: 700,
+                  }}
+                >
+                  Yes, show me
+                </button>
+                <button
+                  type="button"
+                  onClick={skipTutorial}
+                  style={{
+                    minWidth: "110px",
+                    padding: "9px 14px",
+                    borderRadius: "999px",
+                    border: "1px solid rgba(255, 255, 255, 0.18)",
+                    background: "rgba(255, 255, 255, 0.06)",
+                    color: "rgba(255, 255, 255, 0.8)",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                  }}
+                >
+                  No thanks
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {tutorialStep !== null && TUTORIAL_STEPS[tutorialStep].id === "move" ? (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              left: `${(1 - TUTORIAL_TARGET_POSITION.x) * 100}%`,
+              top: `${TUTORIAL_TARGET_POSITION.y * 100}%`,
+              width: `${TUTORIAL_TARGET_RADIUS * 2 * 100}%`,
+              aspectRatio: "1 / 1",
+              transform: "translate(-50%, -50%)",
+              borderRadius: "999px",
+              border: "2px dashed rgba(103, 232, 249, 0.85)",
+              animation: "tutorialTargetPulse 1.6s ease-in-out infinite",
+              pointerEvents: "none",
+              zIndex: 2,
+            }}
+          />
+        ) : null}
+        {eventBanner ? (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              top: "14%",
+              left: "50%",
+              zIndex: 6,
+              pointerEvents: "none",
+              padding: "clamp(12px, 2vw, 16px) clamp(18px, 3vw, 26px)",
+              borderRadius: "16px",
+              textAlign: "center",
+              background: "linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(2, 6, 23, 0.86) 100%)",
+              border:
+                eventBanner.kind === "all"
+                  ? "1px solid rgba(255, 200, 87, 0.55)"
+                  : "1px solid rgba(125, 211, 252, 0.45)",
+              boxShadow:
+                eventBanner.kind === "all"
+                  ? "0 12px 40px rgba(2, 6, 23, 0.5), 0 0 46px rgba(255, 180, 60, 0.28)"
+                  : "0 12px 40px rgba(2, 6, 23, 0.5), 0 0 36px rgba(56, 189, 248, 0.22)",
+              animation: "eventBannerPop 2.8s ease forwards",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "clamp(14px, 2vw, 17px)",
+                fontWeight: 800,
+                background:
+                  eventBanner.kind === "all"
+                    ? "linear-gradient(90deg, #fde68a 0%, #fbbf24 50%, #fb923c 100%)"
+                    : "linear-gradient(90deg, #bae6fd 0%, #67e8f9 50%, #a5b4fc 100%)",
+                WebkitBackgroundClip: "text",
+                backgroundClip: "text",
+                color: "transparent",
+              }}
+            >
+              {eventBanner.title}
+            </div>
+            <div
+              style={{
+                marginTop: "4px",
+                fontSize: "clamp(11px, 1.5vw, 13px)",
+                color: "rgba(255, 255, 255, 0.88)",
+              }}
+            >
+              {eventBanner.subtitle}
+            </div>
+          </div>
+        ) : null}
         {moleculePrompt ? (
           <div
             onClick={(event) => event.stopPropagation()}
@@ -6811,6 +8009,12 @@ function App() {
                   ? "Would you like to make ammonia (NH3)?"
                 : moleculePrompt.type === "methane"
                   ? "Would you like to make methane (CH4)?"
+                : moleculePrompt.type === "hydronium"
+                  ? "Form hydronium (H3O⁺)? This ion carries a +1 charge!"
+                : moleculePrompt.type === "ammonium"
+                  ? "Form ammonium (NH4⁺)? This ion carries a +1 charge!"
+                : moleculePrompt.type === "sodiumChloride"
+                  ? "Form sodium chloride (NaCl)? Na gives its electron to Cl — an ionic bond!"
                   : "Would you like to make water (H2O)?"}
             </div>
             <div style={{ display: "flex", gap: "10px" }}>
