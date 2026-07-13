@@ -50,7 +50,31 @@ const ATOM_DETAILS = {
     valenceElectrons: 1,
     commonBonds: 1,
   },
+  S: {
+    name: "Sulfur",
+    symbol: "S",
+    atomicNumber: 16,
+    neutrons: 16,
+    valenceElectrons: 6,
+    commonBonds: 2,
+  },
 };
+
+// Pauling electronegativities — used for the polarity (dipole arrow) overlay.
+const ELECTRONEGATIVITY = {
+  H: 2.2,
+  C: 2.55,
+  N: 3.04,
+  O: 3.44,
+  S: 2.58,
+  Cl: 3.16,
+  Na: 0.93,
+};
+
+// Bonds with ΔEN below this read as nonpolar; above the ionic cutoff the
+// electron transfers outright (drawn as a dashed ionic link instead).
+const POLAR_BOND_MIN_EN_DIFF = 0.4;
+const IONIC_BOND_EN_DIFF = 1.8;
 
 const createAtom = (id, type, position, moleculeId = null) => ({
   id,
@@ -106,6 +130,7 @@ const ATOM_NEON_COLORS = {
   N: "#4d7dff",
   Cl: "#3dff8f",
   Na: "#c95bff",
+  S: "#ffe14d",
 };
 
 const hexToRgb = (hex) => {
@@ -167,7 +192,289 @@ const DISCOVERABLE_MOLECULES = [
   { formula: "H3O+", label: "H₃O⁺ — Hydronium" },
   { formula: "NH4+", label: "NH₄⁺ — Ammonium" },
   { formula: "NaCl", label: "NaCl — Table salt" },
+  { formula: "HCl", label: "HCl — Hydrogen chloride" },
+  { formula: "OH-", label: "OH⁻ — Hydroxide" },
+  { formula: "H2O2", label: "H₂O₂ — Hydrogen peroxide" },
+  { formula: "O3", label: "O₃ — Ozone" },
+  { formula: "C2H6", label: "C₂H₆ — Ethane" },
+  { formula: "C2H4", label: "C₂H₄ — Ethene" },
+  { formula: "C2H2", label: "C₂H₂ — Ethyne" },
+  { formula: "CH3OH", label: "CH₃OH — Methanol" },
+  { formula: "NaOH", label: "NaOH — Sodium hydroxide" },
+  { formula: "Na2O", label: "Na₂O — Sodium oxide" },
+  { formula: "SO2", label: "SO₂ — Sulfur dioxide" },
+  { formula: "H2S", label: "H₂S — Hydrogen sulfide" },
 ];
+
+// Data-driven molecule definitions. Legacy species (H2O, CO2, ...) keep their
+// bespoke code paths; everything here is handled by one generic engine:
+// detection by composition, prompt, bond normalization, snap layout, drawing,
+// lone pairs (keyed by layout role index), and per-ion charges.
+// Layout offsets are px relative to the role-0 anchor atom.
+const GENERIC_MOLECULE_TEMPLATES = [
+  {
+    type: "hydrogenChloride",
+    formula: "HCl",
+    displayLabel: "HCl",
+    composition: { H: 1, Cl: 1 },
+    layout: [
+      { type: "Cl", x: 0, y: 0 },
+      { type: "H", x: -92, y: 0 },
+    ],
+    bonds: [{ a: 0, b: 1 }],
+    lonePairs: { 0: 3 },
+    prompt: "Would you like to make hydrogen chloride (HCl)?",
+  },
+  {
+    type: "hydroxide",
+    formula: "OH-",
+    displayLabel: "OH⁻",
+    charge: -1,
+    composition: { O: 1, H: 1 },
+    layout: [
+      { type: "O", x: 0, y: 0 },
+      { type: "H", x: 66, y: -30 },
+    ],
+    bonds: [{ a: 0, b: 1 }],
+    lonePairs: { 0: 3 },
+    prompt: "Form hydroxide (OH⁻)? This ion carries a −1 charge!",
+  },
+  {
+    type: "hydrogenPeroxide",
+    formula: "H2O2",
+    displayLabel: "H2O2",
+    composition: { O: 2, H: 2 },
+    layout: [
+      { type: "O", x: 0, y: 0 },
+      { type: "O", x: 84, y: 0 },
+      { type: "H", x: -46, y: -40 },
+      { type: "H", x: 130, y: 40 },
+    ],
+    bonds: [{ a: 0, b: 1 }, { a: 0, b: 2 }, { a: 1, b: 3 }],
+    lonePairs: { 0: 2, 1: 2 },
+    prompt: "Would you like to make hydrogen peroxide (H2O2)?",
+  },
+  {
+    type: "ozone",
+    formula: "O3",
+    displayLabel: "O3",
+    composition: { O: 3 },
+    layout: [
+      { type: "O", x: 0, y: 0 },
+      { type: "O", x: -84, y: 38 },
+      { type: "O", x: 84, y: 38 },
+    ],
+    bonds: [{ a: 0, b: 1, order: "double" }, { a: 0, b: 2 }],
+    lonePairs: { 0: 1, 1: 2, 2: 3 },
+    prompt: "Would you like to make ozone (O3)?",
+  },
+  {
+    type: "ethane",
+    formula: "C2H6",
+    displayLabel: "C2H6",
+    composition: { C: 2, H: 6 },
+    layout: [
+      { type: "C", x: 0, y: 0 },
+      { type: "C", x: 96, y: 0 },
+      { type: "H", x: -50, y: -50 },
+      { type: "H", x: -70, y: 0 },
+      { type: "H", x: -50, y: 50 },
+      { type: "H", x: 146, y: -50 },
+      { type: "H", x: 166, y: 0 },
+      { type: "H", x: 146, y: 50 },
+    ],
+    bonds: [
+      { a: 0, b: 1 },
+      { a: 0, b: 2 },
+      { a: 0, b: 3 },
+      { a: 0, b: 4 },
+      { a: 1, b: 5 },
+      { a: 1, b: 6 },
+      { a: 1, b: 7 },
+    ],
+    prompt: "Would you like to make ethane (C2H6)?",
+  },
+  {
+    type: "ethene",
+    formula: "C2H4",
+    displayLabel: "C2H4",
+    composition: { C: 2, H: 4 },
+    layout: [
+      { type: "C", x: 0, y: 0 },
+      { type: "C", x: 96, y: 0 },
+      { type: "H", x: -48, y: -46 },
+      { type: "H", x: -48, y: 46 },
+      { type: "H", x: 144, y: -46 },
+      { type: "H", x: 144, y: 46 },
+    ],
+    bonds: [
+      { a: 0, b: 1, order: "double" },
+      { a: 0, b: 2 },
+      { a: 0, b: 3 },
+      { a: 1, b: 4 },
+      { a: 1, b: 5 },
+    ],
+    prompt: "Would you like to make ethene (C2H4)?",
+  },
+  {
+    type: "ethyne",
+    formula: "C2H2",
+    displayLabel: "C2H2",
+    composition: { C: 2, H: 2 },
+    layout: [
+      { type: "C", x: 0, y: 0 },
+      { type: "C", x: 96, y: 0 },
+      { type: "H", x: -84, y: 0 },
+      { type: "H", x: 180, y: 0 },
+    ],
+    bonds: [
+      { a: 0, b: 1, order: "triple" },
+      { a: 0, b: 2 },
+      { a: 1, b: 3 },
+    ],
+    prompt: "Would you like to make ethyne / acetylene (C2H2)?",
+  },
+  {
+    type: "methanol",
+    formula: "CH3OH",
+    displayLabel: "CH3OH",
+    composition: { C: 1, O: 1, H: 4 },
+    layout: [
+      { type: "C", x: 0, y: 0 },
+      { type: "O", x: 92, y: -24 },
+      { type: "H", x: -52, y: -48 },
+      { type: "H", x: -72, y: 0 },
+      { type: "H", x: -52, y: 48 },
+      { type: "H", x: 150, y: -52 },
+    ],
+    bonds: [
+      { a: 0, b: 1 },
+      { a: 0, b: 2 },
+      { a: 0, b: 3 },
+      { a: 0, b: 4 },
+      { a: 1, b: 5 },
+    ],
+    lonePairs: { 1: 2 },
+    prompt: "Would you like to make methanol (CH3OH)?",
+  },
+  {
+    type: "sodiumHydroxide",
+    formula: "NaOH",
+    displayLabel: "NaOH",
+    composition: { Na: 1, O: 1, H: 1 },
+    layout: [
+      { type: "Na", x: 0, y: 0 },
+      { type: "O", x: 104, y: 0 },
+      { type: "H", x: 162, y: -30 },
+    ],
+    bonds: [{ a: 0, b: 1, ionic: true }, { a: 1, b: 2 }],
+    lonePairs: { 1: 3 },
+    ionCharges: { 0: 1, 1: -1 },
+    prompt: "Form sodium hydroxide (NaOH)? Na⁺ pairs with hydroxide — an ionic compound!",
+  },
+  {
+    type: "sodiumOxide",
+    formula: "Na2O",
+    displayLabel: "Na2O",
+    composition: { Na: 2, O: 1 },
+    layout: [
+      { type: "O", x: 0, y: 0 },
+      { type: "Na", x: -104, y: 0 },
+      { type: "Na", x: 104, y: 0 },
+    ],
+    bonds: [
+      { a: 0, b: 1, ionic: true },
+      { a: 0, b: 2, ionic: true },
+    ],
+    lonePairs: { 0: 4 },
+    ionCharges: { 0: -2, 1: 1, 2: 1 },
+    prompt: "Form sodium oxide (Na2O)? Two Na⁺ with one O²⁻ — an ionic compound!",
+  },
+  {
+    type: "sulfurDioxide",
+    formula: "SO2",
+    displayLabel: "SO2",
+    composition: { S: 1, O: 2 },
+    layout: [
+      { type: "S", x: 0, y: 0 },
+      { type: "O", x: -84, y: 38 },
+      { type: "O", x: 84, y: 38 },
+    ],
+    bonds: [{ a: 0, b: 1, order: "double" }, { a: 0, b: 2 }],
+    lonePairs: { 0: 1, 1: 2, 2: 3 },
+    prompt: "Would you like to make sulfur dioxide (SO2)?",
+  },
+  {
+    type: "hydrogenSulfide",
+    formula: "H2S",
+    displayLabel: "H2S",
+    composition: { S: 1, H: 2 },
+    layout: [
+      { type: "S", x: 0, y: 0 },
+      { type: "H", x: -50, y: -46 },
+      { type: "H", x: 50, y: -46 },
+    ],
+    bonds: [{ a: 0, b: 1 }, { a: 0, b: 2 }],
+    lonePairs: { 0: 2 },
+    prompt: "Would you like to make hydrogen sulfide (H2S)?",
+  },
+];
+
+// Generic prompts wait for the bonded cluster to sit unchanged briefly, so
+// build-through states (e.g. O-H on the way to water, C2H4 on the way to
+// C2H6) don't interrupt with premature offers.
+const GENERIC_PROMPT_DELAY_MS = 2600;
+
+const getGenericTemplateForMolecule = (molecule) =>
+  GENERIC_MOLECULE_TEMPLATES.find((template) => template.type === molecule?.templateType) ?? null;
+
+const getComponentComposition = (componentAtoms) => {
+  const counts = {};
+
+  for (const atom of componentAtoms) {
+    counts[atom.type] = (counts[atom.type] ?? 0) + 1;
+  }
+
+  return counts;
+};
+
+const compositionMatchesTemplate = (template, counts) => {
+  const templateKeys = Object.keys(template.composition);
+
+  return (
+    templateKeys.length === Object.keys(counts).length &&
+    templateKeys.every((atomType) => template.composition[atomType] === counts[atomType])
+  );
+};
+
+// Info shown on the molecule inspector card. Keyed by formula.
+const MOLECULE_INFO = {
+  H2: { name: "Hydrogen gas", molarMass: "2.02", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "The lightest molecule in the universe — it powers stars." },
+  O2: { name: "Oxygen gas", molarMass: "32.00", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "About 21% of the air you breathe." },
+  N2: { name: "Nitrogen gas", molarMass: "28.02", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "78% of air — its triple bond makes it very unreactive." },
+  H2O: { name: "Water", molarMass: "18.02", geometry: "Bent", bondAngle: "104.5°", polarity: "Polar", fact: "Its polarity makes it the “universal solvent.”" },
+  CO: { name: "Carbon monoxide", molarMass: "28.01", geometry: "Linear", bondAngle: "180°", polarity: "Polar", fact: "Toxic — it binds hemoglobin about 240× better than O2." },
+  CO2: { name: "Carbon dioxide", molarMass: "44.01", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "You exhale it; plants turn it back into oxygen." },
+  NH3: { name: "Ammonia", molarMass: "17.03", geometry: "Trigonal pyramidal", bondAngle: "107°", polarity: "Polar", fact: "Used to make the fertilizer that feeds half the world." },
+  CH4: { name: "Methane", molarMass: "16.04", geometry: "Tetrahedral", bondAngle: "109.5°", polarity: "Nonpolar", fact: "Natural gas — and a potent greenhouse gas." },
+  H2CO3: { name: "Carbonic acid", molarMass: "62.03", geometry: "Trigonal planar at C", bondAngle: "~120°", polarity: "Polar", fact: "Makes soda fizzy and slightly acidic." },
+  "2H2O": { name: "Water dimer", molarMass: "36.03", geometry: "H-bonded pair", bondAngle: "—", polarity: "Polar", fact: "Hydrogen bonds like this give water its high boiling point." },
+  "H3O+": { name: "Hydronium", molarMass: "19.02", geometry: "Trigonal pyramidal", bondAngle: "~113°", polarity: "+1 cation", fact: "The true carrier of acidity in water." },
+  "NH4+": { name: "Ammonium", molarMass: "18.04", geometry: "Tetrahedral", bondAngle: "109.5°", polarity: "+1 cation", fact: "Ammonia that grabbed an extra proton." },
+  NaCl: { name: "Sodium chloride", molarMass: "58.44", geometry: "Ionic pair", bondAngle: "—", polarity: "Ionic", fact: "Table salt — an electron fully transfers from Na to Cl." },
+  HCl: { name: "Hydrogen chloride", molarMass: "36.46", geometry: "Linear", bondAngle: "180°", polarity: "Polar", fact: "Dissolved in water it becomes hydrochloric acid — your stomach makes it." },
+  "OH-": { name: "Hydroxide", molarMass: "17.01", geometry: "Linear", bondAngle: "—", polarity: "−1 anion", fact: "The signature ion of bases." },
+  H2O2: { name: "Hydrogen peroxide", molarMass: "34.01", geometry: "Bent at each O", bondAngle: "~95°", polarity: "Polar", fact: "An antiseptic that decomposes into water and oxygen." },
+  O3: { name: "Ozone", molarMass: "48.00", geometry: "Bent", bondAngle: "117°", polarity: "Slightly polar", fact: "The ozone layer absorbs harmful UV radiation." },
+  C2H6: { name: "Ethane", molarMass: "30.07", geometry: "Tetrahedral at each C", bondAngle: "109.5°", polarity: "Nonpolar", fact: "Found in natural gas alongside methane." },
+  C2H4: { name: "Ethene", molarMass: "28.05", geometry: "Trigonal planar", bondAngle: "120°", polarity: "Nonpolar", fact: "Ripens fruit — and becomes polyethylene plastic." },
+  C2H2: { name: "Ethyne (acetylene)", molarMass: "26.04", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "Burns at ~3300°C in welding torches." },
+  CH3OH: { name: "Methanol", molarMass: "32.04", geometry: "Tetrahedral at C", bondAngle: "~109°", polarity: "Polar", fact: "The simplest alcohol — toxic to drink, useful as fuel." },
+  NaOH: { name: "Sodium hydroxide", molarMass: "40.00", geometry: "Ionic", bondAngle: "—", polarity: "Ionic", fact: "Lye — a strong base used to make soap." },
+  Na2O: { name: "Sodium oxide", molarMass: "61.98", geometry: "Ionic", bondAngle: "—", polarity: "Ionic", fact: "A reactive oxide that forms lye when it meets water." },
+  SO2: { name: "Sulfur dioxide", molarMass: "64.07", geometry: "Bent", bondAngle: "119°", polarity: "Polar", fact: "Volcano gas — in clouds it can become acid rain." },
+  H2S: { name: "Hydrogen sulfide", molarMass: "34.08", geometry: "Bent", bondAngle: "92°", polarity: "Slightly polar", fact: "Rotten-egg smell — your nose detects a few parts per billion." },
+};
 
 const DISCOVERED_MOLECULES_STORAGE_KEY = "chemArLabDiscoveredMolecules";
 const TUTORIAL_SEEN_STORAGE_KEY = "chemArLabTutorialSeen";
@@ -263,6 +570,7 @@ const createMolecule = ({
   originPositions,
   visualMode = "default",
   charge = 0,
+  templateType = null,
 }) => ({
   id,
   type,
@@ -279,6 +587,7 @@ const createMolecule = ({
   originPositions,
   visualMode,
   charge,
+  templateType,
 });
 
 const getClusterParticleOffsets = (count, maxRadiusPx) => {
@@ -454,6 +763,8 @@ function App() {
     }
   });
   const [tutorialStep, setTutorialStep] = useState(null);
+  const [showPolarity, setShowPolarity] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const deleteModeRef = useRef(false);
   const bondingModeRef = useRef(false);
   const atomSizeScaleRef = useRef(1);
@@ -486,6 +797,11 @@ function App() {
   const pointerDragRef = useRef(null);
   const discoveredFormulasRef = useRef(null);
   const eventBannerTimeoutRef = useRef(null);
+  // First-seen timestamps per bonded component, for the generic prompt delay.
+  const genericComponentAgesRef = useRef(new Map());
+  const showPolarityRef = useRef(false);
+  const soundEnabledRef = useRef(true);
+  const audioContextRef = useRef(null);
 
   if (discoveredFormulasRef.current === null) {
     discoveredFormulasRef.current = discoveredFormulas;
@@ -528,6 +844,58 @@ function App() {
 
   const getMoleculeMixedNeonRgb = (molecule) =>
     getMixedNeonRgb(getMoleculeAtoms(molecule).map((atom) => atom.type));
+
+  // Quiet synthesized sounds (no assets). Gains are intentionally low.
+  const playTone = (frequency, { duration = 0.35, delay = 0, peak = 0.04, type = "sine" } = {}) => {
+    if (!soundEnabledRef.current) {
+      return;
+    }
+
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+
+      if (!AudioContextClass) {
+        return;
+      }
+
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContextClass();
+      }
+
+      const audioContext = audioContextRef.current;
+
+      if (audioContext.state === "suspended") {
+        audioContext.resume();
+      }
+
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      const startAt = audioContext.currentTime + delay;
+
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, startAt);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(peak, startAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + duration + 0.05);
+    } catch {
+      // Audio unavailable — stay silent.
+    }
+  };
+
+  const playFormationSound = () => {
+    playTone(740, { peak: 0.04 });
+    playTone(1108.7, { delay: 0.09, peak: 0.03 });
+  };
+
+  const playDiscoverySound = () => {
+    [523.25, 659.25, 783.99].forEach((frequency, index) => {
+      playTone(frequency, { delay: 0.15 + index * 0.16, duration: 0.42, peak: 0.035 });
+    });
+  };
 
   const showEventBanner = (banner, durationMs = 2800) => {
     if (eventBannerTimeoutRef.current) {
@@ -589,6 +957,7 @@ function App() {
     }
 
     showEventBanner({ kind: "discovery", title: "Molecule discovered!", subtitle: entry.label });
+    playDiscoverySound();
 
     if (nextDiscovered.length === DISCOVERABLE_MOLECULES.length) {
       window.setTimeout(() => {
@@ -698,6 +1067,12 @@ function App() {
       return 1;
     }
 
+    // Sulfur: 2 bonds while building (H2S, SO2 start as singles; SO2's
+    // doubles are set when the molecule snaps together).
+    if (atomType === "S") {
+      return 2;
+    }
+
     return Number.POSITIVE_INFINITY;
   };
 
@@ -754,6 +1129,19 @@ function App() {
     }
 
     return 0;
+  };
+
+  // Template molecules key lone pairs by layout role (so e.g. ozone's central
+  // O can differ from its terminal O's); legacy molecules key by formula+type.
+  const getLonePairCountForAtom = (molecule, atom) => {
+    const template = getGenericTemplateForMolecule(molecule);
+
+    if (template) {
+      const roleIndex = molecule.atomIds.indexOf(atom.id);
+      return template.lonePairs?.[roleIndex] ?? 0;
+    }
+
+    return getLonePairCount(molecule.formula, atom.type);
   };
 
   const getBondCategory = (bond) => bond.category ?? "covalent";
@@ -1236,6 +1624,7 @@ function App() {
     snapStartedAt,
     visualMode = "default",
     charge = 0,
+    templateType = null,
   }) => {
     const promptAtoms = getAtomsByIds(atomIds);
     const moleculeId = nextMoleculeIdRef.current;
@@ -1270,6 +1659,7 @@ function App() {
         ),
         visualMode,
         charge,
+        templateType,
       }),
     ];
     atomsRef.current = atomsRef.current.map((atom) =>
@@ -1277,6 +1667,7 @@ function App() {
     );
 
     spawnFormationEffect(resolvedCenter, getMixedNeonRgb(promptAtoms.map((atom) => atom.type)));
+    playFormationSound();
     registerMoleculeDiscovery(formula);
 
     return moleculeId;
@@ -1352,6 +1743,7 @@ function App() {
 
     setPromptedComboStatus(comboKey, "accepted");
     spawnFormationEffect(center, getMixedNeonRgb(clusterAtoms.map((atom) => atom.type)));
+    playFormationSound();
     registerMoleculeDiscovery("2H2O");
     return clusterId;
   };
@@ -1632,12 +2024,12 @@ function App() {
 
     const isIntermolecularHydrogenBond = isAllowedIntermolecularHydrogenBond(startAtom, endAtom);
 
-    // Sodium is a metal: it doesn't share electrons covalently. Only allow the
-    // ionic Na-Cl pairing.
+    // Sodium is a metal: it doesn't share electrons covalently. Only allow
+    // ionic pairings (Na-Cl, and Na-O for NaOH / Na2O).
     if (
       enforceBondLimits &&
-      ((startAtom.type === "Na" && endAtom.type !== "Cl") ||
-        (endAtom.type === "Na" && startAtom.type !== "Cl"))
+      ((startAtom.type === "Na" && endAtom.type !== "Cl" && endAtom.type !== "O") ||
+        (endAtom.type === "Na" && startAtom.type !== "Cl" && startAtom.type !== "O"))
     ) {
       showBondLimitMessage();
       return false;
@@ -1704,6 +2096,45 @@ function App() {
 
     const promptAtoms = getAtomsByIds(prompt.atomIds);
     const availablePromptAtoms = promptAtoms.filter((atom) => atom.moleculeId === null);
+
+    if (prompt.kind === "generic") {
+      const template = GENERIC_MOLECULE_TEMPLATES.find((entry) => entry.type === prompt.type);
+      // prompt.atomIds are already role-ordered (matched to template.layout).
+      const roleAtoms = prompt.atomIds.map((atomId) => getAtomById(atomId));
+
+      if (
+        !template ||
+        roleAtoms.length !== template.layout.length ||
+        roleAtoms.some(
+          (atom, roleIndex) => !atom || atom.moleculeId !== null || atom.type !== template.layout[roleIndex].type
+        )
+      ) {
+        setMoleculePromptState(null);
+        return;
+      }
+
+      // Normalize the user's bonds into the template's correct structure
+      // (right connectivity and bond orders).
+      removeBondsForAtomIds(prompt.atomIds);
+
+      for (const bond of template.bonds) {
+        createBond(roleAtoms[bond.a].id, roleAtoms[bond.b].id, { type: bond.order ?? "single" });
+      }
+
+      buildMoleculeRecord({
+        type: template.type,
+        displayLabel: template.displayLabel,
+        formula: template.formula,
+        atomIds: prompt.atomIds,
+        center: { ...roleAtoms[0].position },
+        snapStartedAt: performance.now(),
+        charge: template.charge ?? 0,
+        templateType: template.type,
+      });
+      setPromptedComboStatus(prompt.comboKey, "accepted");
+      setMoleculePromptState(null);
+      return;
+    }
 
     if (prompt.kind === "reaction" && prompt.type === "carbonicAcid") {
       const sourceMolecules = prompt.sourceMoleculeIds
@@ -2212,6 +2643,18 @@ function App() {
     setShowLonePairs(nextValue);
   };
 
+  const handleShowPolarityChange = (event) => {
+    const nextValue = event.target.checked;
+    showPolarityRef.current = nextValue;
+    setShowPolarity(nextValue);
+  };
+
+  const handleSoundEnabledChange = (event) => {
+    const nextValue = event.target.checked;
+    soundEnabledRef.current = nextValue;
+    setSoundEnabled(nextValue);
+  };
+
   const finalizeBondAtCanvasPoint = (startAtomId, canvasX, canvasY) => {
     const targetAtomIndex = findAtomIndexAtCanvasPoint(
       canvasX,
@@ -2365,11 +2808,7 @@ function App() {
           return 0;
         })
         .find((molecule) => {
-          if (
-            (molecule.formula !== "H2O" && molecule.formula !== "2H2O") ||
-            !molecule.center ||
-            molecule.radius === undefined
-          ) {
+          if (!molecule.center || molecule.radius === undefined) {
             return false;
           }
 
@@ -2556,10 +2995,25 @@ function App() {
     : [];
   // eslint-disable-next-line react-hooks/refs
   const atomicExpansionCollapseGesture = atomicExpansionCollapseGestureRef.current;
+  // Molecule inspector target: any grabbed molecule first, else the hovered one.
   // eslint-disable-next-line react-hooks/refs
-  const currentWaterToggleMoleculeId = getWaterToggleTargetMoleculeId();
-  const currentWaterToggleMolecule =
-    currentWaterToggleMoleculeId !== null ? getMoleculeById(currentWaterToggleMoleculeId) : null;
+  const currentInfoMoleculeId = [...grabbedMoleculeIdsRef.current][0] ?? hoveredMoleculeIdRef.current;
+  const currentInfoMolecule =
+    currentInfoMoleculeId !== null && currentInfoMoleculeId !== undefined
+      ? getMoleculeById(currentInfoMoleculeId)
+      : null;
+  const currentMoleculeInfo = currentInfoMolecule
+    ? MOLECULE_INFO[currentInfoMolecule.formula] ?? null
+    : null;
+  const currentMoleculePolarityColor = currentMoleculeInfo
+    ? currentMoleculeInfo.polarity.includes("cation") || currentMoleculeInfo.polarity === "Ionic"
+      ? "#fbbf24"
+      : currentMoleculeInfo.polarity.includes("anion")
+        ? "#67e8f9"
+        : currentMoleculeInfo.polarity === "Polar" || currentMoleculeInfo.polarity === "Slightly polar"
+          ? "#93c5fd"
+          : "rgba(255, 255, 255, 0.75)"
+    : "rgba(255, 255, 255, 0.75)";
 
   // The camera + animation loop intentionally captures the initial handlers and refs.
   useEffect(() => {
@@ -2711,6 +3165,14 @@ function App() {
         edge: "#6b21a8",
         text: "#ffffff",
         outline: "#f3e8ff",
+      },
+      S: {
+        base: "#eab308",
+        highlight: "#fef08a",
+        mid: "#facc15",
+        edge: "#854d0e",
+        text: "#422006",
+        outline: "#fde68a",
       },
     };
 
@@ -2919,6 +3381,12 @@ function App() {
           };
 
           const getMoleculeAnchor = (molecule, moleculeAtoms) => {
+            if (getGenericTemplateForMolecule(molecule)) {
+              return (
+                moleculeAtoms.find((atom) => atom.id === molecule.atomIds[0]) ?? moleculeAtoms[0]
+              );
+            }
+
             if (molecule.formula === "2H2O") {
               return null;
             }
@@ -2997,7 +3465,7 @@ function App() {
               .filter(Boolean);
 
           const getLonePairGroupCenters = (atom, molecule, drawRadius) => {
-            const lonePairCount = getLonePairCount(molecule.formula, atom.type);
+            const lonePairCount = getLonePairCountForAtom(molecule, atom);
 
             if (lonePairCount === 0) {
               return [];
@@ -3061,6 +3529,24 @@ function App() {
                   radialDirection: direction,
                 },
               ];
+            }
+
+            if (lonePairCount === 3) {
+              const outwardDirection = neighborDirections[0]
+                ? { x: -neighborDirections[0].x, y: -neighborDirections[0].y }
+                : { x: 0, y: -1 };
+
+              return [-1.25, 0, 1.25].map((rotation) => {
+                const direction = normalizeVector(rotateVector(outwardDirection, rotation));
+
+                return {
+                  center: {
+                    x: atomCenter.x + direction.x * baseDistance,
+                    y: atomCenter.y + direction.y * baseDistance,
+                  },
+                  radialDirection: direction,
+                };
+              });
             }
 
             if (lonePairCount === 4) {
@@ -3274,6 +3760,40 @@ function App() {
 
           const drawMoleculeBondSticks = (molecule) => {
             if (molecule.formula === "H2O" && molecule.visualMode === "waterDroplet") {
+              return;
+            }
+
+            const genericTemplate = getGenericTemplateForMolecule(molecule);
+
+            if (genericTemplate) {
+              for (const bond of genericTemplate.bonds) {
+                const leftAtom = getAtomById(molecule.atomIds[bond.a]);
+                const rightAtom = getAtomById(molecule.atomIds[bond.b]);
+
+                if (!leftAtom || !rightAtom) {
+                  continue;
+                }
+
+                if (bond.ionic) {
+                  context.save();
+                  context.setLineDash([5, 7]);
+                  context.strokeStyle = "rgba(226, 232, 240, 0.75)";
+                  context.lineWidth = 2.4 * getVisualScale();
+                  context.shadowColor = "rgba(226, 232, 240, 0.3)";
+                  context.shadowBlur = 7;
+                  drawBondStick(leftAtom.position, rightAtom.position, 0.95);
+                  context.restore();
+                } else {
+                  drawBondOrderStick(
+                    leftAtom.position,
+                    rightAtom.position,
+                    COVALENT_BOND_ORDER[bond.order ?? "single"] ?? 1,
+                    0.88,
+                    [leftAtom.type, rightAtom.type]
+                  );
+                }
+              }
+
               return;
             }
 
@@ -4034,6 +4554,36 @@ function App() {
             syncMoleculeGeometry(molecule);
           };
 
+          // Generic template molecules: targets are the anchor position plus
+          // each role's scaled layout offset.
+          const getGenericTargetPositions = (template, anchorPosition) =>
+            template.layout.map((entry) =>
+              clampPosition({
+                x: anchorPosition.x + getScaledCanvasOffset(entry, canvas).x,
+                y: anchorPosition.y + getScaledCanvasOffset(entry, canvas).y,
+              })
+            );
+
+          const layoutGenericMolecule = (molecule, template) => {
+            const anchorAtom = getAtomById(molecule.atomIds[0]);
+
+            if (!anchorAtom) {
+              return;
+            }
+
+            const targetPositions = getGenericTargetPositions(template, anchorAtom.position);
+            const atomTargets = new Map(
+              molecule.atomIds.map((atomId, roleIndex) => [atomId, targetPositions[roleIndex]])
+            );
+
+            atomsRef.current = atomsRef.current.map((atom) =>
+              atomTargets.has(atom.id) && atomTargets.get(atom.id)
+                ? { ...atom, position: atomTargets.get(atom.id) }
+                : atom
+            );
+            syncMoleculeGeometry(molecule);
+          };
+
           const getUnmoleculedBondAdjacency = () => {
             const atomById = new Map(atomsRef.current.map((atom) => [atom.id, atom]));
             const adjacency = new Map();
@@ -4662,6 +5212,80 @@ function App() {
             }
           };
 
+          const tryFormGenericMolecules = () => {
+            const now = performance.now();
+            const { atomById, adjacency } = getUnmoleculedBondAdjacency();
+            const seenComboKeys = new Set();
+            let promptCandidate = null;
+
+            for (const componentAtoms of getBondedComponents(atomById, adjacency)) {
+              const comboKey = getMoleculeComboKey(componentAtoms.map(({ id }) => id));
+
+              seenComboKeys.add(comboKey);
+
+              if (!genericComponentAgesRef.current.has(comboKey)) {
+                genericComponentAgesRef.current.set(comboKey, now);
+              }
+
+              if (promptCandidate || moleculePromptRef.current) {
+                continue;
+              }
+
+              if (promptedMoleculeCombosRef.current[comboKey]) {
+                continue;
+              }
+
+              const composition = getComponentComposition(componentAtoms);
+              const template = GENERIC_MOLECULE_TEMPLATES.find((entry) =>
+                compositionMatchesTemplate(entry, composition)
+              );
+
+              if (!template) {
+                continue;
+              }
+
+              if (now - genericComponentAgesRef.current.get(comboKey) < GENERIC_PROMPT_DELAY_MS) {
+                continue;
+              }
+
+              // Assign atoms to template roles by type (deterministic order).
+              const atomsByType = {};
+
+              for (const atom of [...componentAtoms].sort((left, right) => {
+                if (left.position.y !== right.position.y) {
+                  return left.position.y - right.position.y;
+                }
+
+                return left.position.x - right.position.x;
+              })) {
+                atomsByType[atom.type] = [...(atomsByType[atom.type] ?? []), atom];
+              }
+
+              const orderedAtomIds = template.layout.map((entry) => atomsByType[entry.type].shift().id);
+
+              promptCandidate = { template, comboKey, orderedAtomIds };
+            }
+
+            // Purge age entries for components that no longer exist.
+            for (const staleKey of [...genericComponentAgesRef.current.keys()]) {
+              if (!seenComboKeys.has(staleKey)) {
+                genericComponentAgesRef.current.delete(staleKey);
+              }
+            }
+
+            if (promptCandidate) {
+              setPromptedComboStatus(promptCandidate.comboKey, "prompted");
+              setMoleculePromptState({
+                kind: "generic",
+                type: promptCandidate.template.type,
+                displayLabel: promptCandidate.template.displayLabel,
+                comboKey: promptCandidate.comboKey,
+                atomIds: promptCandidate.orderedAtomIds,
+                promptText: promptCandidate.template.prompt,
+              });
+            }
+          };
+
           const tryTriggerCarbonicAcidReaction = () => {
             if (moleculePromptRef.current) {
               return;
@@ -4808,6 +5432,24 @@ function App() {
                 );
 
               if (!hasHydrogenBond || getClusterForMemberMoleculeId(currentPrompt.sourceMoleculeIds[0])) {
+                setMoleculePromptState(null);
+              }
+
+              return;
+            }
+
+            if (currentPrompt.kind === "generic") {
+              const template = GENERIC_MOLECULE_TEMPLATES.find(
+                (entry) => entry.type === currentPrompt.type
+              );
+              const genericPromptAtoms = getAtomsByIds(currentPrompt.atomIds);
+
+              if (
+                !template ||
+                genericPromptAtoms.length !== currentPrompt.atomIds.length ||
+                genericPromptAtoms.some((atom) => atom.moleculeId !== null) ||
+                !compositionMatchesTemplate(template, getComponentComposition(genericPromptAtoms))
+              ) {
                 setMoleculePromptState(null);
               }
 
@@ -4962,6 +5604,39 @@ function App() {
               );
               const easedProgress = 1 - (1 - progress) * (1 - progress);
               const atomMap = new Map(atomsRef.current.map((atom) => [atom.id, { ...atom }]));
+              const genericTemplate = getGenericTemplateForMolecule(molecule);
+
+              if (genericTemplate) {
+                const anchorAtom = getAtomById(molecule.atomIds[0]);
+
+                if (anchorAtom) {
+                  const anchorStartPosition =
+                    molecule.originPositions?.[anchorAtom.id] ?? anchorAtom.position;
+                  const targetPositions = getGenericTargetPositions(
+                    genericTemplate,
+                    anchorStartPosition
+                  );
+
+                  molecule.atomIds.forEach((atomId, roleIndex) => {
+                    const atom = getAtomById(atomId);
+                    const targetPosition = targetPositions[roleIndex];
+
+                    if (!atom || !targetPosition) {
+                      return;
+                    }
+
+                    const startPosition = molecule.originPositions?.[atom.id] ?? atom.position;
+
+                    atomMap.set(atomId, {
+                      ...atomMap.get(atomId),
+                      position: clampPosition({
+                        x: startPosition.x + (targetPosition.x - startPosition.x) * easedProgress,
+                        y: startPosition.y + (targetPosition.y - startPosition.y) * easedProgress,
+                      }),
+                    });
+                  });
+                }
+              }
 
               if (molecule.formula === "2H2O") {
                 const clusterAtoms = getMoleculeAtoms(molecule);
@@ -5305,7 +5980,9 @@ function App() {
                 delete molecule.snapDuration;
                 delete molecule.originPositions;
 
-                if (molecule.formula === "H2O") {
+                if (genericTemplate) {
+                  layoutGenericMolecule(molecule, genericTemplate);
+                } else if (molecule.formula === "H2O") {
                   const oxygenAtom = getAtomById(molecule.atomIds[0]);
 
                   if (oxygenAtom) {
@@ -6120,6 +6797,7 @@ function App() {
           tryFormHydroniumMolecules();
           tryFormAmmoniumMolecules();
           tryFormSodiumChlorideMolecules();
+          tryFormGenericMolecules();
           tryTriggerCarbonicAcidReaction();
           tryFormWaterCluster();
           animateMolecules();
@@ -6407,6 +7085,19 @@ function App() {
               continue;
             }
 
+            const genericMoleculeTemplate = getGenericTemplateForMolecule(molecule);
+
+            if (
+              genericMoleculeTemplate &&
+              !compositionMatchesTemplate(
+                genericMoleculeTemplate,
+                getComponentComposition(moleculeAtoms)
+              )
+            ) {
+              releaseMolecule(molecule.id);
+              continue;
+            }
+
             if (
               molecule.formula === "H2CO3" &&
               (
@@ -6439,6 +7130,7 @@ function App() {
             }
 
             if (
+              !genericMoleculeTemplate &&
               molecule.formula !== "H2" &&
               molecule.formula !== "O2" &&
               molecule.formula !== "N2" &&
@@ -6530,6 +7222,9 @@ function App() {
             // Charged species tint their atoms: amber for cations, cyan for anions.
             // NaCl is neutral overall but ionic, so each ion gets its own tint.
             const moleculeCharge = parentMolecule?.charge ?? 0;
+            const parentTemplate = getGenericTemplateForMolecule(parentMolecule);
+            const parentRoleIndex =
+              parentMolecule && parentTemplate ? parentMolecule.atomIds.indexOf(atomId) : -1;
             const perAtomIonCharge =
               parentMolecule?.formula === "NaCl"
                 ? type === "Na"
@@ -6537,7 +7232,7 @@ function App() {
                   : type === "Cl"
                     ? -1
                     : 0
-                : 0;
+                : parentTemplate?.ionCharges?.[parentRoleIndex] ?? 0;
             const chargeValue = moleculeCharge !== 0 ? moleculeCharge : perAtomIonCharge;
             const auraRgb =
               chargeValue > 0
@@ -6642,7 +7337,13 @@ function App() {
                 0.7
               );
               context.shadowBlur = 8;
-              context.fillText(perAtomIonCharge > 0 ? "+" : "−", 0, 0);
+              context.fillText(
+                `${Math.abs(perAtomIonCharge) > 1 ? Math.abs(perAtomIonCharge) : ""}${
+                  perAtomIonCharge > 0 ? "+" : "−"
+                }`,
+                0,
+                0
+              );
               context.restore();
             }
 
@@ -6689,6 +7390,102 @@ function App() {
             context.shadowOffsetX = 0;
             context.shadowOffsetY = 1;
             context.fillText(type, 0, 0.5);
+            context.restore();
+          }
+
+          // Polarity overlay: dipole arrows (cross-tail notation) on polar
+          // covalent bonds, pointing toward the more electronegative atom.
+          if (showPolarityRef.current) {
+            context.save();
+            context.strokeStyle = "rgba(139, 233, 255, 0.9)";
+            context.fillStyle = "rgba(139, 233, 255, 0.9)";
+            context.lineWidth = 1.7 * getVisualScale();
+            context.lineCap = "round";
+            context.shadowColor = "rgba(103, 232, 249, 0.5)";
+            context.shadowBlur = 6;
+
+            for (const bond of bondsRef.current) {
+              if (getBondCategory(bond) !== "covalent") {
+                continue;
+              }
+
+              const [leftAtomId, rightAtomId] = getBondAtomIds(bond);
+              const leftAtom = getAtomById(leftAtomId);
+              const rightAtom = getAtomById(rightAtomId);
+
+              if (!leftAtom || !rightAtom) {
+                continue;
+              }
+
+              const parentMolecule =
+                leftAtom.moleculeId !== null ? getMoleculeById(leftAtom.moleculeId) : null;
+
+              if (parentMolecule?.visualMode === "waterDroplet") {
+                continue;
+              }
+
+              const leftEN = ELECTRONEGATIVITY[leftAtom.type] ?? 2.5;
+              const rightEN = ELECTRONEGATIVITY[rightAtom.type] ?? 2.5;
+              const enDifference = Math.abs(leftEN - rightEN);
+
+              if (enDifference < POLAR_BOND_MIN_EN_DIFF || enDifference > IONIC_BOND_EN_DIFF) {
+                continue;
+              }
+
+              const positiveAtom = leftEN <= rightEN ? leftAtom : rightAtom;
+              const negativeAtom = leftEN <= rightEN ? rightAtom : leftAtom;
+              const positiveX = positiveAtom.position.x * canvas.width;
+              const positiveY = positiveAtom.position.y * canvas.height;
+              const negativeX = negativeAtom.position.x * canvas.width;
+              const negativeY = negativeAtom.position.y * canvas.height;
+              const deltaX = negativeX - positiveX;
+              const deltaY = negativeY - positiveY;
+              const bondLength = Math.hypot(deltaX, deltaY);
+
+              if (bondLength < atomRadius * 1.4) {
+                continue;
+              }
+
+              const unitX = deltaX / bondLength;
+              const unitY = deltaY / bondLength;
+              const normalX = -unitY;
+              const normalY = unitX;
+              const sideOffset = 15 * getVisualScale();
+              const midX = (positiveX + negativeX) / 2 + normalX * sideOffset;
+              const midY = (positiveY + negativeY) / 2 + normalY * sideOffset;
+              const halfLength = Math.min(19 * getVisualScale(), bondLength * 0.28);
+              const tailX = midX - unitX * halfLength;
+              const tailY = midY - unitY * halfLength;
+              const headX = midX + unitX * halfLength;
+              const headY = midY + unitY * halfLength;
+              const arrowSize = 6 * getVisualScale();
+              const crossSize = 4.5 * getVisualScale();
+
+              context.beginPath();
+              context.moveTo(tailX, tailY);
+              context.lineTo(headX, headY);
+              context.stroke();
+
+              context.beginPath();
+              context.moveTo(headX, headY);
+              context.lineTo(
+                headX - unitX * arrowSize - normalX * arrowSize * 0.6,
+                headY - unitY * arrowSize - normalY * arrowSize * 0.6
+              );
+              context.lineTo(
+                headX - unitX * arrowSize + normalX * arrowSize * 0.6,
+                headY - unitY * arrowSize + normalY * arrowSize * 0.6
+              );
+              context.closePath();
+              context.fill();
+
+              // Cross at the tail (the δ+ end) — standard dipole notation.
+              context.beginPath();
+              context.moveTo(tailX + unitX * 3 - normalX * crossSize, tailY + unitY * 3 - normalY * crossSize);
+              context.lineTo(tailX + unitX * 3 + normalX * crossSize, tailY + unitY * 3 + normalY * crossSize);
+              context.stroke();
+            }
+
             context.restore();
           }
 
@@ -7368,6 +8165,62 @@ function App() {
           />
           <span>Show Lone Pairs</span>
         </label>
+        <label
+          style={{
+            marginTop: "clamp(8px, 1.2vw, 10px)",
+            display: "flex",
+            alignItems: "center",
+            gap: "clamp(8px, 1.2vw, 10px)",
+            fontSize: "clamp(11px, 1.2vw, 12px)",
+            fontWeight: 600,
+            lineHeight: 1.3,
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showPolarity}
+            onChange={handleShowPolarityChange}
+            style={{
+              width: "14px",
+              height: "14px",
+              margin: 0,
+              accentColor: "#7dd3fc",
+              cursor: "pointer",
+              flex: "0 0 auto",
+            }}
+          />
+          <span>Show Polarity (dipole arrows)</span>
+        </label>
+        <label
+          style={{
+            marginTop: "clamp(8px, 1.2vw, 10px)",
+            display: "flex",
+            alignItems: "center",
+            gap: "clamp(8px, 1.2vw, 10px)",
+            fontSize: "clamp(11px, 1.2vw, 12px)",
+            fontWeight: 600,
+            lineHeight: 1.3,
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={soundEnabled}
+            onChange={handleSoundEnabledChange}
+            style={{
+              width: "14px",
+              height: "14px",
+              margin: 0,
+              accentColor: "#7dd3fc",
+              cursor: "pointer",
+              flex: "0 0 auto",
+            }}
+          />
+          <span>Sound Effects</span>
+        </label>
         <div
           style={{
             marginTop: "clamp(12px, 1.8vw, 14px)",
@@ -7627,6 +8480,20 @@ function App() {
               >
                 Sodium (Na)
               </button>
+              <button
+                type="button"
+                onClick={() => spawnAtom("S")}
+                style={{
+                  padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                  borderRadius: "10px",
+                  border: "1px solid rgba(255, 255, 255, 0.14)",
+                  background: "rgba(255, 255, 255, 0.08)",
+                  color: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Sulfur (S)
+              </button>
             </div>
           </div>
         ) : null}
@@ -7659,31 +8526,79 @@ function App() {
             >
               Current Molecule
             </div>
-            {currentWaterToggleMolecule ? (
+            {currentInfoMolecule ? (
               <>
-                <div style={{ fontSize: "clamp(13px, 1.7vw, 14px)", fontWeight: 700, marginBottom: "8px" }}>
-                  {currentWaterToggleMolecule.displayLabel}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => toggleWaterVisualMode(currentWaterToggleMolecule.id)}
+                <div
                   style={{
-                    width: "100%",
-                    padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
-                    borderRadius: "10px",
-                    border: "1px solid rgba(125, 211, 252, 0.24)",
-                    background: "rgba(14, 116, 144, 0.18)",
-                    color: "#d9faff",
-                    cursor: "pointer",
-                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: "8px",
+                    marginBottom: "8px",
+                    flexWrap: "wrap",
                   }}
                 >
-                  Toggle Water Visual ({currentWaterToggleMolecule.visualMode === "waterDroplet" ? "Orb" : "Default"})
-                </button>
+                  <div style={{ fontSize: "clamp(13px, 1.7vw, 14px)", fontWeight: 700 }}>
+                    {currentMoleculeInfo?.name ?? currentInfoMolecule.displayLabel}
+                  </div>
+                  <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", opacity: 0.65 }}>
+                    {currentInfoMolecule.displayLabel}
+                  </div>
+                </div>
+                {currentMoleculeInfo ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "4px",
+                      fontSize: "clamp(11px, 1.35vw, 12px)",
+                      lineHeight: 1.45,
+                      color: "rgba(255, 255, 255, 0.88)",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    <div>
+                      <span style={{ opacity: 0.6 }}>Molar mass:</span>{" "}
+                      {currentMoleculeInfo.molarMass} g/mol
+                    </div>
+                    <div>
+                      <span style={{ opacity: 0.6 }}>Shape:</span> {currentMoleculeInfo.geometry}
+                      {currentMoleculeInfo.bondAngle !== "—"
+                        ? ` (${currentMoleculeInfo.bondAngle})`
+                        : ""}
+                    </div>
+                    <div>
+                      <span style={{ opacity: 0.6 }}>Polarity:</span>{" "}
+                      <span style={{ color: currentMoleculePolarityColor, fontWeight: 700 }}>
+                        {currentMoleculeInfo.polarity}
+                      </span>
+                    </div>
+                    <div style={{ opacity: 0.72, fontStyle: "italic", marginTop: "2px" }}>
+                      {currentMoleculeInfo.fact}
+                    </div>
+                  </div>
+                ) : null}
+                {currentInfoMolecule.formula === "H2O" ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleWaterVisualMode(currentInfoMolecule.id)}
+                    style={{
+                      width: "100%",
+                      padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                      borderRadius: "10px",
+                      border: "1px solid rgba(125, 211, 252, 0.24)",
+                      background: "rgba(14, 116, 144, 0.18)",
+                      color: "#d9faff",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Toggle Water Visual ({currentInfoMolecule.visualMode === "waterDroplet" ? "Orb" : "Default"})
+                  </button>
+                ) : null}
               </>
             ) : (
               <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", opacity: 0.72, lineHeight: 1.5 }}>
-                Hover or grab a water molecule to enable its visual toggle.
+                Hover or grab a molecule to inspect it.
               </div>
             )}
           </div>
@@ -7991,7 +8906,9 @@ function App() {
             }}
             >
               <div style={{ fontSize: "clamp(13px, 1.8vw, 15px)", fontWeight: 700 }}>
-              {moleculePrompt.kind === "reaction" && moleculePrompt.type === "carbonicAcid"
+              {moleculePrompt.kind === "generic"
+                ? moleculePrompt.promptText
+                : moleculePrompt.kind === "reaction" && moleculePrompt.type === "carbonicAcid"
                 ? "Form carbonic acid (H2CO3)?"
                 : moleculePrompt.kind === "cluster" && moleculePrompt.type === "waterDimer"
                 ? "Would you like to form 2H2O?"
