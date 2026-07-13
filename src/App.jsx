@@ -615,6 +615,51 @@ const clampValue = (value, min, max) => Math.min(max, Math.max(min, value));
 
 const lerp = (start, end, amount) => start + (end - start) * amount;
 
+// --- Hand-tracking smoothing ---------------------------------------------
+// One Euro filter (Casiez et al.): adaptive low-pass that smooths hard when
+// the hand is still (kills MediaPipe jitter) but opens up at speed (no lag
+// on fast sweeps). One filter instance per landmark coordinate.
+const createOneEuroFilter = ({ minCutoff = 1.2, beta = 0.055, dCutoff = 1.0 } = {}) => {
+  let previousValue = null;
+  let previousDerivative = 0;
+  let previousTimeMs = null;
+
+  const smoothingAlpha = (cutoff, dtSeconds) => {
+    const tau = 1 / (2 * Math.PI * cutoff);
+    return 1 / (1 + tau / dtSeconds);
+  };
+
+  return (value, timeMs) => {
+    if (previousValue === null) {
+      previousValue = value;
+      previousTimeMs = timeMs;
+      return value;
+    }
+
+    const dtSeconds = Math.max(0.001, (timeMs - previousTimeMs) / 1000);
+    previousTimeMs = timeMs;
+
+    const derivative = (value - previousValue) / dtSeconds;
+    previousDerivative =
+      previousDerivative +
+      smoothingAlpha(dCutoff, dtSeconds) * (derivative - previousDerivative);
+
+    const cutoff = minCutoff + beta * Math.abs(previousDerivative);
+    previousValue =
+      previousValue + smoothingAlpha(cutoff, dtSeconds) * (value - previousValue);
+
+    return previousValue;
+  };
+};
+
+// A hand that vanishes from detection keeps its state (and its grab) this
+// long, so single-frame tracking blips don't drop molecules.
+const HAND_GRACE_MS = 220;
+
+// Grabbed objects ease toward the fingertip each frame instead of snapping,
+// which removes residual tremble and gives molecules a bit of weight.
+const HAND_GRAB_FOLLOW = 0.55;
+
 const easeOutCubic = (value) => 1 - (1 - value) ** 3;
 
 const clampVectorToRadius = (x, y, maxRadius) => {
@@ -808,7 +853,7 @@ function App() {
   }
 
   if (import.meta.env.DEV && typeof window !== "undefined") {
-    window.__chemDebug = { atomsRef, bondsRef, moleculesRef };
+    window.__chemDebug = { atomsRef, bondsRef, moleculesRef, pointerDragRef, effectsRef };
   }
 
   const spawnGrabRipple = (position, colorRgb, options = {}) => {
@@ -3026,6 +3071,11 @@ function App() {
     // their previous state each frame by wrist proximity.
     let handStatesList = [];
     let nextHandStateId = 1;
+    // Only run inference when the camera has produced a NEW frame — rAF often
+    // ticks faster than the camera, and re-detecting the same frame just
+    // burns CPU (dropped frames read as choppy tracking).
+    let lastDetectedVideoTime = -1;
+    let lastDetectionResults = { landmarks: [] };
 
     const createHandState = (wrist) => {
       const id = nextHandStateId;
@@ -3035,6 +3085,8 @@ function App() {
         id,
         key: `hand-${id}`,
         wrist,
+        lastSeenAt: 0,
+        landmarkFilters: null,
         isPinching: false,
         indexTip: null,
         grabbedAtomIndex: null,
@@ -3045,6 +3097,32 @@ function App() {
         expansionGrabOffset: null,
         lastRippleAt: 0,
       };
+    };
+
+    // Run every raw landmark through this hand's One Euro filters. Re-feeding
+    // cached detections between camera frames is fine — the filters ease
+    // toward the raw value, which doubles as cheap sub-frame interpolation.
+    const smoothHandLandmarks = (handState, landmarks, timeMs) => {
+      if (!handState.landmarkFilters) {
+        handState.landmarkFilters = [];
+      }
+
+      return landmarks.map((landmark, landmarkIndex) => {
+        if (!handState.landmarkFilters[landmarkIndex]) {
+          handState.landmarkFilters[landmarkIndex] = {
+            x: createOneEuroFilter(),
+            y: createOneEuroFilter(),
+          };
+        }
+
+        const filters = handState.landmarkFilters[landmarkIndex];
+
+        return {
+          ...landmark,
+          x: filters.x(landmark.x, timeMs),
+          y: filters.y(landmark.y, timeMs),
+        };
+      });
     };
 
     const resetHandInteractionState = (handState) => {
@@ -3097,19 +3175,31 @@ function App() {
         usedStates.add(pair.handState);
       }
 
+      const now = performance.now();
       const nextHandStatesList = detections.map((detection, detectionIndex) => {
         const matchedState = assignedStates.get(detectionIndex);
 
         if (matchedState) {
           matchedState.wrist = { ...detection.wrist };
+          matchedState.lastSeenAt = now;
           return matchedState;
         }
 
-        return createHandState({ ...detection.wrist });
+        const createdState = createHandState({ ...detection.wrist });
+        createdState.lastSeenAt = now;
+        return createdState;
       });
 
       for (const handState of handStatesList) {
-        if (!usedStates.has(handState)) {
+        if (usedStates.has(handState)) {
+          continue;
+        }
+
+        // Not detected this frame. Tracking blips are common, so keep the
+        // hand (and whatever it's holding) alive briefly before letting go.
+        if (now - handState.lastSeenAt <= HAND_GRACE_MS) {
+          nextHandStatesList.push(handState);
+        } else {
           clearHandState(handState);
           delete tempBondStateRef.current[handState.key];
         }
@@ -6143,21 +6233,31 @@ function App() {
             canvas.height = 720;
           }
 
-          const results =
-            handLandmarker && video.videoWidth && video.videoHeight
-              ? handLandmarker.detectForVideo(video, performance.now())
-              : { landmarks: [] };
+          let results = { landmarks: [] };
+
+          if (handLandmarker && video.videoWidth && video.videoHeight) {
+            if (video.currentTime !== lastDetectedVideoTime) {
+              lastDetectedVideoTime = video.currentTime;
+              lastDetectionResults = handLandmarker.detectForVideo(video, performance.now());
+            }
+
+            results = lastDetectionResults;
+          }
 
           context.clearRect(0, 0, canvas.width, canvas.height);
           context.fillStyle = "#67e8f9";
+          const frameNow = performance.now();
           const detections = results.landmarks.map((landmarks) => ({
             landmarks,
             wrist: landmarks[0] ?? { x: 0.5, y: 0.5 },
           }));
           const matchedHandStates = matchHandStatesToDetections(detections);
 
-          for (const [handIndex, landmarks] of results.landmarks.entries()) {
+          for (const [handIndex, rawLandmarks] of results.landmarks.entries()) {
             const handState = matchedHandStates[handIndex] ?? null;
+            const landmarks = handState
+              ? smoothHandLandmarks(handState, rawLandmarks, frameNow)
+              : rawLandmarks;
             const thumbTip = landmarks[4];
             const indexTip = landmarks[8];
             let pinchDetected = false;
@@ -6426,9 +6526,16 @@ function App() {
                     );
 
                     if (grabbedMolecule) {
+                      const grabTargetX = indexTip.x - (handState.moleculeGrabOffset?.x ?? 0);
+                      const grabTargetY = indexTip.y - (handState.moleculeGrabOffset?.y ?? 0);
+                      const currentCenter = grabbedMolecule.center ?? {
+                        x: grabTargetX,
+                        y: grabTargetY,
+                      };
+
                       moveMoleculeTo(grabbedMolecule, {
-                        x: indexTip.x - (handState.moleculeGrabOffset?.x ?? 0),
-                        y: indexTip.y - (handState.moleculeGrabOffset?.y ?? 0),
+                        x: lerp(currentCenter.x, grabTargetX, HAND_GRAB_FOLLOW),
+                        y: lerp(currentCenter.y, grabTargetY, HAND_GRAB_FOLLOW),
                       });
 
                       if (performance.now() - handState.lastRippleAt >= GRAB_RIPPLE_REPEAT_MS) {
@@ -6456,8 +6563,8 @@ function App() {
                       atomsRef.current[handState.grabbedAtomIndex] = {
                         ...grabbedAtom,
                         position: clampPosition({
-                          x: indexTip.x,
-                          y: indexTip.y,
+                          x: lerp(grabbedAtom.position.x, indexTip.x, HAND_GRAB_FOLLOW),
+                          y: lerp(grabbedAtom.position.y, indexTip.y, HAND_GRAB_FOLLOW),
                         }),
                       };
 
