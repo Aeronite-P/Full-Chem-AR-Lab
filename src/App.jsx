@@ -204,6 +204,8 @@ const DISCOVERABLE_MOLECULES = [
   { formula: "Na2O", label: "Na₂O — Sodium oxide" },
   { formula: "SO2", label: "SO₂ — Sulfur dioxide" },
   { formula: "H2S", label: "H₂S — Hydrogen sulfide" },
+  { formula: "NH4Cl", label: "NH₄Cl — Ammonium chloride (reaction!)" },
+  { formula: "H2SO3", label: "H₂SO₃ — Sulfurous acid (reaction!)" },
 ];
 
 // Data-driven molecule definitions. Legacy species (H2O, CO2, ...) keep their
@@ -418,7 +420,132 @@ const GENERIC_MOLECULE_TEMPLATES = [
     lonePairs: { 0: 2 },
     prompt: "Would you like to make hydrogen sulfide (H2S)?",
   },
+  // reactionOnly species can't be assembled by bonding raw atoms (their
+  // central atom has no free bond slots) — they exist only as reaction
+  // products, so the bond detector skips them.
+  {
+    type: "ammoniumChloride",
+    formula: "NH4Cl",
+    displayLabel: "NH4Cl",
+    reactionOnly: true,
+    composition: { N: 1, H: 4, Cl: 1 },
+    layout: [
+      { type: "N", x: 0, y: 0 },
+      { type: "H", x: -52, y: -48 },
+      { type: "H", x: 52, y: -48 },
+      { type: "H", x: -52, y: 48 },
+      { type: "H", x: 52, y: 48 },
+      { type: "Cl", x: 150, y: 0 },
+    ],
+    bonds: [
+      { a: 0, b: 1 },
+      { a: 0, b: 2 },
+      { a: 0, b: 3 },
+      { a: 0, b: 4 },
+      { a: 0, b: 5, ionic: true },
+    ],
+    lonePairs: { 5: 4 },
+    ionCharges: { 0: 1, 5: -1 },
+  },
+  {
+    type: "sulfurousAcid",
+    formula: "H2SO3",
+    displayLabel: "H2SO3",
+    reactionOnly: true,
+    composition: { S: 1, O: 3, H: 2 },
+    layout: [
+      { type: "S", x: 0, y: 0 },
+      { type: "O", x: 0, y: -76 },
+      { type: "O", x: -66, y: 30 },
+      { type: "O", x: 66, y: 30 },
+      { type: "H", x: -116, y: 64 },
+      { type: "H", x: 116, y: 64 },
+    ],
+    bonds: [
+      { a: 0, b: 1, order: "double" },
+      { a: 0, b: 2 },
+      { a: 0, b: 3 },
+      { a: 2, b: 4 },
+      { a: 3, b: 5 },
+    ],
+    lonePairs: { 0: 1, 1: 2, 2: 2, 3: 2 },
+  },
 ];
+
+// --- Reactions -------------------------------------------------------------
+// Data-driven, like the molecule templates: bring the reactants close
+// together and the lab offers the reaction. Atom counts always balance —
+// products are rebuilt from the exact atoms of the reactants.
+const REACTION_TEMPLATES = [
+  {
+    type: "ammoniumChlorideReaction",
+    equation: "NH3 + HCl → NH4Cl",
+    reactantMolecules: { NH3: 1, HCl: 1 },
+    products: ["NH4Cl"],
+    energy: "exothermic",
+    prompt: "Base meets acid! React NH3 with HCl to form ammonium chloride (NH4Cl)?",
+  },
+  {
+    type: "methaneCombustion",
+    equation: "CH4 + 2 O2 → CO2 + 2 H2O",
+    reactantMolecules: { CH4: 1, O2: 2 },
+    products: ["CO2", "H2O", "H2O"],
+    energy: "exothermic",
+    prompt: "🔥 Combustion! Burn methane in oxygen (CH4 + 2 O2 → CO2 + 2 H2O)?",
+  },
+  {
+    type: "neutralization",
+    equation: "H3O⁺ + OH⁻ → 2 H2O",
+    reactantMolecules: { "H3O+": 1, "OH-": 1 },
+    products: ["H2O", "H2O"],
+    energy: "exothermic",
+    prompt: "Neutralization! The acid H3O⁺ and the base OH⁻ cancel into two waters?",
+  },
+  {
+    type: "sodiumWater",
+    equation: "2 Na + 2 H2O → 2 NaOH + H2",
+    reactantMolecules: { H2O: 2 },
+    reactantAtoms: { Na: 2 },
+    products: ["NaOH", "NaOH", "H2"],
+    energy: "exothermic",
+    prompt: "⚡ Sodium + water! React violently into sodium hydroxide and hydrogen gas?",
+  },
+  {
+    type: "acidRain",
+    equation: "SO2 + H2O → H2SO3",
+    reactantMolecules: { SO2: 1, H2O: 1 },
+    products: ["H2SO3"],
+    energy: "exothermic",
+    prompt: "Acid rain! Dissolve SO2 into water to form sulfurous acid (H2SO3)?",
+  },
+];
+
+const REACTION_TRIGGER_RANGE_PX = 150;
+
+// Compositions for legacy (non-template) reaction products.
+const LEGACY_PRODUCT_COMPOSITIONS = {
+  H2O: { O: 1, H: 2 },
+  CO2: { C: 1, O: 2 },
+  H2: { H: 2 },
+};
+
+const getReactionProductOffset = (productCount, productIndex) => {
+  if (productCount === 1) {
+    return { x: 0, y: 0 };
+  }
+
+  if (productCount === 2) {
+    return productIndex === 0 ? { x: -0.1, y: 0 } : { x: 0.1, y: 0 };
+  }
+
+  return (
+    [
+      { x: -0.13, y: 0.03 },
+      { x: 0.13, y: 0.03 },
+      { x: 0, y: -0.13 },
+    ][productIndex] ?? { x: 0, y: 0 }
+  );
+};
 
 // Compositions the legacy (non-template) detectors can form from raw atoms.
 // Used to decide which template molecules are "build-through" states.
@@ -454,7 +581,11 @@ const GENERIC_TEMPLATE_NEEDS_DELAY = Object.fromEntries(
   GENERIC_MOLECULE_TEMPLATES.map((template) => [
     template.type,
     [
-      ...GENERIC_MOLECULE_TEMPLATES.map((entry) => entry.composition),
+      // reactionOnly species can't be reached by bonding, so they don't make
+      // anything a "build-through" state.
+      ...GENERIC_MOLECULE_TEMPLATES.filter((entry) => !entry.reactionOnly).map(
+        (entry) => entry.composition
+      ),
       ...LEGACY_DETECTABLE_COMPOSITIONS,
     ].some(
       (otherComposition) =>
@@ -517,6 +648,8 @@ const MOLECULE_INFO = {
   Na2O: { name: "Sodium oxide", molarMass: "61.98", geometry: "Ionic", bondAngle: "—", polarity: "Ionic", fact: "A reactive oxide that forms lye when it meets water." },
   SO2: { name: "Sulfur dioxide", molarMass: "64.07", geometry: "Bent", bondAngle: "119°", polarity: "Polar", fact: "Volcano gas — in clouds it can become acid rain." },
   H2S: { name: "Hydrogen sulfide", molarMass: "34.08", geometry: "Bent", bondAngle: "92°", polarity: "Slightly polar", fact: "Rotten-egg smell — your nose detects a few parts per billion." },
+  NH4Cl: { name: "Ammonium chloride", molarMass: "53.49", geometry: "Ionic (NH₄⁺ / Cl⁻)", bondAngle: "—", polarity: "Ionic", fact: "Forms as white smoke when ammonia and HCl vapors meet mid-air." },
+  H2SO3: { name: "Sulfurous acid", molarMass: "82.08", geometry: "Pyramidal at S", bondAngle: "—", polarity: "Polar", fact: "The acid in acid rain — SO2 dissolved in water." },
 };
 
 const DISCOVERED_MOLECULES_STORAGE_KEY = "chemArLabDiscoveredMolecules";
@@ -992,6 +1125,166 @@ function App() {
     [523.25, 659.25, 783.99].forEach((frequency, index) => {
       playTone(frequency, { delay: 0.15 + index * 0.16, duration: 0.42, peak: 0.035 });
     });
+  };
+
+  const playReactionSound = () => {
+    playTone(196, { duration: 0.5, peak: 0.045, type: "triangle" });
+    playTone(392, { delay: 0.12, duration: 0.45, peak: 0.035 });
+    playTone(587.33, { delay: 0.24, duration: 0.5, peak: 0.03 });
+  };
+
+  // Reaction burst: staggered formation effects in fire colors (exothermic —
+  // energy released) or icy blues (endothermic — energy absorbed).
+  const spawnReactionBurst = (position, energy) => {
+    const colors =
+      energy === "endothermic"
+        ? [
+            { r: 130, g: 200, b: 255 },
+            { r: 90, g: 150, b: 255 },
+            { r: 200, g: 240, b: 255 },
+          ]
+        : [
+            { r: 255, g: 120, b: 40 },
+            { r: 255, g: 190, b: 70 },
+            { r: 255, g: 70, b: 50 },
+          ];
+
+    colors.forEach((color, index) => {
+      window.setTimeout(() => {
+        spawnFormationEffect(
+          {
+            x: position.x + (index - 1) * 0.025,
+            y: position.y - index * 0.018,
+          },
+          color
+        );
+      }, index * 130);
+    });
+  };
+
+  const setAtomPosition = (atomId, position) => {
+    atomsRef.current = atomsRef.current.map((atom) =>
+      atom.id === atomId ? { ...atom, position: { ...position } } : atom
+    );
+  };
+
+  const takeAtomsFromPool = (atomPool, composition) => {
+    const takenAtoms = [];
+
+    for (const [atomType, count] of Object.entries(composition)) {
+      for (let taken = 0; taken < count; taken += 1) {
+        const poolIndex = atomPool.findIndex((atom) => atom.type === atomType);
+
+        if (poolIndex < 0) {
+          return null;
+        }
+
+        takenAtoms.push(atomPool.splice(poolIndex, 1)[0]);
+      }
+    }
+
+    return takenAtoms;
+  };
+
+  // Build one reaction product out of the pooled reactant atoms. The anchor
+  // atom teleports to the product's spot; the rest snap over from wherever
+  // the reactants were — the rearrangement IS the reaction animation.
+  const buildReactionProduct = (formula, atomPool, centerPosition) => {
+    const template = GENERIC_MOLECULE_TEMPLATES.find((entry) => entry.formula === formula);
+
+    if (template) {
+      const roleAtoms = [];
+
+      for (const entry of template.layout) {
+        const poolIndex = atomPool.findIndex((atom) => atom.type === entry.type);
+
+        if (poolIndex < 0) {
+          return;
+        }
+
+        roleAtoms.push(atomPool.splice(poolIndex, 1)[0]);
+      }
+
+      setAtomPosition(roleAtoms[0].id, centerPosition);
+
+      for (const bond of template.bonds) {
+        createBond(roleAtoms[bond.a].id, roleAtoms[bond.b].id, { type: bond.order ?? "single" });
+      }
+
+      buildMoleculeRecord({
+        type: template.type,
+        displayLabel: template.displayLabel,
+        formula: template.formula,
+        atomIds: roleAtoms.map((atom) => atom.id),
+        center: { ...centerPosition },
+        snapStartedAt: performance.now(),
+        charge: template.charge ?? 0,
+        templateType: template.type,
+      });
+      return;
+    }
+
+    const composition = LEGACY_PRODUCT_COMPOSITIONS[formula];
+
+    if (!composition) {
+      return;
+    }
+
+    const takenAtoms = takeAtomsFromPool(atomPool, composition);
+
+    if (!takenAtoms) {
+      return;
+    }
+
+    if (formula === "H2O") {
+      const [oxygenAtom, hydrogenA, hydrogenB] = takenAtoms;
+
+      setAtomPosition(oxygenAtom.id, centerPosition);
+      createBond(oxygenAtom.id, hydrogenA.id);
+      createBond(oxygenAtom.id, hydrogenB.id);
+      buildMoleculeRecord({
+        type: "water",
+        displayLabel: "H2O",
+        formula: "H2O",
+        atomIds: [oxygenAtom.id, hydrogenA.id, hydrogenB.id],
+        center: { ...centerPosition },
+        snapStartedAt: performance.now(),
+      });
+      return;
+    }
+
+    if (formula === "CO2") {
+      const carbonAtom = takenAtoms.find((atom) => atom.type === "C");
+      const oxygenAtoms = takenAtoms.filter((atom) => atom.type === "O");
+
+      setAtomPosition(carbonAtom.id, centerPosition);
+      createBond(carbonAtom.id, oxygenAtoms[0].id, { type: "double" });
+      createBond(carbonAtom.id, oxygenAtoms[1].id, { type: "double" });
+      buildMoleculeRecord({
+        type: "carbonDioxide",
+        displayLabel: "CO2",
+        formula: "CO2",
+        atomIds: [oxygenAtoms[0].id, carbonAtom.id, oxygenAtoms[1].id],
+        center: { ...centerPosition },
+        snapStartedAt: performance.now(),
+      });
+      return;
+    }
+
+    if (formula === "H2") {
+      const [hydrogenA, hydrogenB] = takenAtoms;
+
+      setAtomPosition(hydrogenA.id, centerPosition);
+      createBond(hydrogenA.id, hydrogenB.id);
+      buildMoleculeRecord({
+        type: "hydrogen",
+        displayLabel: "H2",
+        formula: "H2",
+        atomIds: [hydrogenA.id, hydrogenB.id],
+        center: { ...centerPosition },
+        snapStartedAt: performance.now(),
+      });
+    }
   };
 
   const showEventBanner = (banner, durationMs = 2800) => {
@@ -2228,6 +2521,56 @@ function App() {
         charge: template.charge ?? 0,
         templateType: template.type,
       });
+      setPromptedComboStatus(prompt.comboKey, "accepted");
+      setMoleculePromptState(null);
+      return;
+    }
+
+    if (prompt.kind === "genericReaction") {
+      const reaction = REACTION_TEMPLATES.find((entry) => entry.type === prompt.type);
+      const sourceMolecules = prompt.sourceMoleculeIds
+        .map((moleculeId) => getMoleculeById(moleculeId))
+        .filter(Boolean);
+      const sourceAtoms = (prompt.sourceAtomIds ?? [])
+        .map((atomId) => getAtomById(atomId))
+        .filter(Boolean);
+
+      if (
+        !reaction ||
+        sourceMolecules.length !== prompt.sourceMoleculeIds.length ||
+        sourceAtoms.length !== (prompt.sourceAtomIds ?? []).length ||
+        sourceAtoms.some((atom) => atom.moleculeId !== null)
+      ) {
+        setMoleculePromptState(null);
+        return;
+      }
+
+      const allAtomIds = [
+        ...sourceMolecules.flatMap((molecule) => molecule.atomIds),
+        ...sourceAtoms.map((atom) => atom.id),
+      ];
+      const reactionCentroid = getAtomGroupCenter(getAtomsByIds(allAtomIds));
+
+      removeMoleculeRecords(prompt.sourceMoleculeIds);
+      removeBondsForAtomIds(allAtomIds);
+
+      const atomPool = getAtomsByIds(allAtomIds);
+
+      reaction.products.forEach((productFormula, productIndex) => {
+        const offset = getReactionProductOffset(reaction.products.length, productIndex);
+
+        buildReactionProduct(productFormula, atomPool, {
+          x: clampValue(reactionCentroid.x + offset.x, 0.12, 0.88),
+          y: clampValue(reactionCentroid.y + offset.y, 0.12, 0.88),
+        });
+      });
+
+      spawnReactionBurst(reactionCentroid, reaction.energy);
+      playReactionSound();
+      showEventBanner(
+        { kind: "reaction", title: "Reaction!", subtitle: reaction.equation },
+        3400
+      );
       setPromptedComboStatus(prompt.comboKey, "accepted");
       setMoleculePromptState(null);
       return;
@@ -5380,8 +5723,8 @@ function App() {
               }
 
               const composition = getComponentComposition(componentAtoms);
-              const template = GENERIC_MOLECULE_TEMPLATES.find((entry) =>
-                compositionMatchesTemplate(entry, composition)
+              const template = GENERIC_MOLECULE_TEMPLATES.find(
+                (entry) => !entry.reactionOnly && compositionMatchesTemplate(entry, composition)
               );
 
               if (!template) {
@@ -5430,6 +5773,128 @@ function App() {
                 atomIds: promptCandidate.orderedAtomIds,
                 promptText: promptCandidate.template.prompt,
               });
+            }
+          };
+
+          const tryTriggerGenericReactions = () => {
+            if (moleculePromptRef.current || tutorialActiveRef.current) {
+              return;
+            }
+
+            const rangeNormalized =
+              (REACTION_TRIGGER_RANGE_PX * getVisualScale()) /
+              Math.min(canvas.width, canvas.height);
+
+            for (const reaction of REACTION_TEMPLATES) {
+              const reactantFormulas = Object.keys(reaction.reactantMolecules ?? {});
+              const moleculePool = {};
+              let poolShortage = false;
+
+              for (const formula of reactantFormulas) {
+                moleculePool[formula] = moleculesRef.current.filter(
+                  (molecule) =>
+                    molecule.formula === formula &&
+                    molecule.center &&
+                    !isWaterClusterMolecule(molecule) &&
+                    !getClusterForMemberMoleculeId(molecule.id)
+                );
+
+                if (moleculePool[formula].length < reaction.reactantMolecules[formula]) {
+                  poolShortage = true;
+                  break;
+                }
+              }
+
+              if (poolShortage || reactantFormulas.length === 0) {
+                continue;
+              }
+
+              for (const seedMolecule of moleculePool[reactantFormulas[0]]) {
+                const chosenMolecules = [];
+                let gatherFailed = false;
+
+                for (const formula of reactantFormulas) {
+                  const needed = reaction.reactantMolecules[formula];
+                  const candidates = moleculePool[formula]
+                    .filter((molecule) => !chosenMolecules.includes(molecule))
+                    .map((molecule) => ({
+                      molecule,
+                      distance: Math.hypot(
+                        molecule.center.x - seedMolecule.center.x,
+                        molecule.center.y - seedMolecule.center.y
+                      ),
+                    }))
+                    .filter(
+                      ({ molecule, distance }) =>
+                        molecule === seedMolecule || distance <= rangeNormalized
+                    )
+                    .sort((left, right) => left.distance - right.distance)
+                    .map(({ molecule }) => molecule);
+
+                  if (candidates.length < needed) {
+                    gatherFailed = true;
+                    break;
+                  }
+
+                  chosenMolecules.push(...candidates.slice(0, needed));
+                }
+
+                if (gatherFailed) {
+                  continue;
+                }
+
+                const chosenAtomIds = [];
+
+                for (const [atomType, needed] of Object.entries(reaction.reactantAtoms ?? {})) {
+                  const looseCandidates = atomsRef.current
+                    .filter((atom) => atom.type === atomType && atom.moleculeId === null)
+                    .map((atom) => ({
+                      atom,
+                      distance: Math.hypot(
+                        atom.position.x - seedMolecule.center.x,
+                        atom.position.y - seedMolecule.center.y
+                      ),
+                    }))
+                    .filter(({ distance }) => distance <= rangeNormalized)
+                    .sort((left, right) => left.distance - right.distance)
+                    .map(({ atom }) => atom);
+
+                  if (looseCandidates.length < needed) {
+                    gatherFailed = true;
+                    break;
+                  }
+
+                  chosenAtomIds.push(...looseCandidates.slice(0, needed).map(({ id }) => id));
+                }
+
+                if (gatherFailed) {
+                  continue;
+                }
+
+                const comboKey = `rx:${reaction.type}:${getMoleculeIdComboKey(
+                  chosenMolecules.map(({ id }) => id)
+                )}:${[...chosenAtomIds].sort((left, right) => left - right).join("-")}`;
+
+                if (promptedMoleculeCombosRef.current[comboKey]) {
+                  continue;
+                }
+
+                setPromptedComboStatus(comboKey, "prompted");
+                setMoleculePromptState({
+                  kind: "genericReaction",
+                  type: reaction.type,
+                  displayLabel: reaction.equation,
+                  comboKey,
+                  sourceMoleculeIds: chosenMolecules.map(({ id }) => id),
+                  sourceAtomIds: chosenAtomIds,
+                  promptText: reaction.prompt,
+                  atomIds: [
+                    ...chosenMolecules.flatMap((molecule) => molecule.atomIds),
+                    ...chosenAtomIds,
+                  ],
+                });
+                return;
+              }
             }
           };
 
@@ -5579,6 +6044,29 @@ function App() {
                 );
 
               if (!hasHydrogenBond || getClusterForMemberMoleculeId(currentPrompt.sourceMoleculeIds[0])) {
+                setMoleculePromptState(null);
+              }
+
+              return;
+            }
+
+            if (currentPrompt.kind === "genericReaction") {
+              const reaction = REACTION_TEMPLATES.find(
+                (entry) => entry.type === currentPrompt.type
+              );
+              const sourceMolecules = currentPrompt.sourceMoleculeIds
+                .map((moleculeId) => getMoleculeById(moleculeId))
+                .filter(Boolean);
+              const sourceAtoms = (currentPrompt.sourceAtomIds ?? [])
+                .map((atomId) => getAtomById(atomId))
+                .filter(Boolean);
+
+              if (
+                !reaction ||
+                sourceMolecules.length !== currentPrompt.sourceMoleculeIds.length ||
+                sourceAtoms.length !== (currentPrompt.sourceAtomIds ?? []).length ||
+                sourceAtoms.some((atom) => atom.moleculeId !== null)
+              ) {
                 setMoleculePromptState(null);
               }
 
@@ -6963,6 +7451,7 @@ function App() {
           tryFormSodiumChlorideMolecules();
           tryFormGenericMolecules();
           tryTriggerCarbonicAcidReaction();
+          tryTriggerGenericReactions();
           tryFormWaterCluster();
           animateMolecules();
           applyWaterHydrogenBondForces();
@@ -9014,12 +9503,12 @@ function App() {
               textAlign: "center",
               background: "linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(2, 6, 23, 0.86) 100%)",
               border:
-                eventBanner.kind === "all"
-                  ? "1px solid rgba(255, 200, 87, 0.55)"
+                eventBanner.kind === "all" || eventBanner.kind === "reaction"
+                  ? "1px solid rgba(255, 170, 70, 0.55)"
                   : "1px solid rgba(125, 211, 252, 0.45)",
               boxShadow:
-                eventBanner.kind === "all"
-                  ? "0 12px 40px rgba(2, 6, 23, 0.5), 0 0 46px rgba(255, 180, 60, 0.28)"
+                eventBanner.kind === "all" || eventBanner.kind === "reaction"
+                  ? "0 12px 40px rgba(2, 6, 23, 0.5), 0 0 46px rgba(255, 140, 50, 0.3)"
                   : "0 12px 40px rgba(2, 6, 23, 0.5), 0 0 36px rgba(56, 189, 248, 0.22)",
               animation: "eventBannerPop 2.8s ease forwards",
             }}
@@ -9029,8 +9518,8 @@ function App() {
                 fontSize: "clamp(14px, 2vw, 17px)",
                 fontWeight: 800,
                 background:
-                  eventBanner.kind === "all"
-                    ? "linear-gradient(90deg, #fde68a 0%, #fbbf24 50%, #fb923c 100%)"
+                  eventBanner.kind === "all" || eventBanner.kind === "reaction"
+                    ? "linear-gradient(90deg, #fde68a 0%, #fb923c 50%, #f87171 100%)"
                     : "linear-gradient(90deg, #bae6fd 0%, #67e8f9 50%, #a5b4fc 100%)",
                 WebkitBackgroundClip: "text",
                 backgroundClip: "text",
@@ -9074,7 +9563,7 @@ function App() {
             }}
             >
               <div style={{ fontSize: "clamp(13px, 1.8vw, 15px)", fontWeight: 700 }}>
-              {moleculePrompt.kind === "generic"
+              {moleculePrompt.kind === "generic" || moleculePrompt.kind === "genericReaction"
                 ? moleculePrompt.promptText
                 : moleculePrompt.kind === "reaction" && moleculePrompt.type === "carbonicAcid"
                 ? "Form carbonic acid (H2CO3)?"

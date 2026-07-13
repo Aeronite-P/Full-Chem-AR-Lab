@@ -20,7 +20,8 @@ Just click the link and it runs in your browser. Your browser will ask for camer
 - **Neon grab ripples** — grabbing an atom ripples in that atom's color; grabbing a molecule ripples in the blended color of all of its atoms.
 - **Formation glow** — molecules form with a glowing burst of expanding rings, bloom, and sparks in the molecule's mixed color.
 - **Polished visuals** — atoms have neon auras, rim lighting, and specular highlights; bonds render as color-gradient sticks with depth and glow.
-- **25 buildable species** — from H₂ to sulfur dioxide, ozone, hydrogen peroxide, the ethane/ethene/ethyne family, methanol, and ionic compounds (NaCl, NaOH, Na₂O) with charge-tinted ions.
+- **27 discoverable species** — from H₂ to sulfur dioxide, ozone, hydrogen peroxide, the ethane/ethene/ethyne family, methanol, and ionic compounds (NaCl, NaOH, Na₂O) with charge-tinted ions.
+- **A real reaction system** — bring reactants together and the lab offers the reaction, conserving every atom: burn methane (CH₄ + 2O₂ → CO₂ + 2H₂O), neutralize hydronium with hydroxide, drop sodium into water (2Na + 2H₂O → 2NaOH + H₂), make acid rain (SO₂ + H₂O → H₂SO₃), and watch NH₃ + HCl form ammonium chloride — each with an energy-colored burst.
 - **Optional tutorial** — a first-visit walkthrough that teaches moving, spawning, and bonding by building water (skippable, restartable from the left panel).
 - **Discovery quests** — every species starts as "???" in the Discoveries list; build it to check it off, with a "Molecule discovered!" animation and a celebration when you find them all.
 - **Molecule inspector** — hover or grab any molecule to see its name, molar mass, shape, bond angle, polarity, and a fun fact.
