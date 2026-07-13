@@ -420,10 +420,53 @@ const GENERIC_MOLECULE_TEMPLATES = [
   },
 ];
 
-// Generic prompts wait for the bonded cluster to sit unchanged briefly, so
-// build-through states (e.g. O-H on the way to water, C2H4 on the way to
-// C2H6) don't interrupt with premature offers.
-const GENERIC_PROMPT_DELAY_MS = 2600;
+// Compositions the legacy (non-template) detectors can form from raw atoms.
+// Used to decide which template molecules are "build-through" states.
+const LEGACY_DETECTABLE_COMPOSITIONS = [
+  { H: 2 },
+  { O: 2 },
+  { N: 2 },
+  { C: 1, O: 1 },
+  { O: 1, H: 2 },
+  { C: 1, O: 2 },
+  { N: 1, H: 3 },
+  { C: 1, H: 4 },
+  { O: 1, H: 3 },
+  { N: 1, H: 4 },
+  { Na: 1, Cl: 1 },
+];
+
+const isStrictSubsetComposition = (small, large) => {
+  if (!Object.keys(small).every((atomType) => (large[atomType] ?? 0) >= small[atomType])) {
+    return false;
+  }
+
+  const totalSmall = Object.values(small).reduce((sum, count) => sum + count, 0);
+  const totalLarge = Object.values(large).reduce((sum, count) => sum + count, 0);
+
+  return totalLarge > totalSmall;
+};
+
+// Only molecules that are a sub-structure of some other buildable molecule
+// (OH- inside H2O, C2H4/C2H2 on the way to C2H6, ...) need the stability
+// delay. Everything else prompts immediately, like the legacy molecules.
+const GENERIC_TEMPLATE_NEEDS_DELAY = Object.fromEntries(
+  GENERIC_MOLECULE_TEMPLATES.map((template) => [
+    template.type,
+    [
+      ...GENERIC_MOLECULE_TEMPLATES.map((entry) => entry.composition),
+      ...LEGACY_DETECTABLE_COMPOSITIONS,
+    ].some(
+      (otherComposition) =>
+        otherComposition !== template.composition &&
+        isStrictSubsetComposition(template.composition, otherComposition)
+    ),
+  ])
+);
+
+// Build-through states wait for the bonded cluster to sit unchanged briefly,
+// so intermediate shapes don't interrupt with premature offers.
+const GENERIC_PROMPT_DELAY_MS = 1800;
 
 const getGenericTemplateForMolecule = (molecule) =>
   GENERIC_MOLECULE_TEMPLATES.find((template) => template.type === molecule?.templateType) ?? null;
@@ -844,6 +887,7 @@ function App() {
   const eventBannerTimeoutRef = useRef(null);
   // First-seen timestamps per bonded component, for the generic prompt delay.
   const genericComponentAgesRef = useRef(new Map());
+  const tutorialActiveRef = useRef(false);
   const showPolarityRef = useRef(false);
   const soundEnabledRef = useRef(true);
   const audioContextRef = useRef(null);
@@ -853,7 +897,15 @@ function App() {
   }
 
   if (import.meta.env.DEV && typeof window !== "undefined") {
-    window.__chemDebug = { atomsRef, bondsRef, moleculesRef, pointerDragRef, effectsRef };
+    window.__chemDebug = {
+      atomsRef,
+      bondsRef,
+      moleculesRef,
+      pointerDragRef,
+      effectsRef,
+      bondingModeRef,
+      tempBondStateRef,
+    };
   }
 
   const spawnGrabRipple = (position, colorRgb, options = {}) => {
@@ -5317,7 +5369,9 @@ function App() {
                 genericComponentAgesRef.current.set(comboKey, now);
               }
 
-              if (promptCandidate || moleculePromptRef.current) {
+              // No template offers during the tutorial — it teaches water, and
+              // an OH- prompt mid-lesson would derail (and confuse) the flow.
+              if (promptCandidate || moleculePromptRef.current || tutorialActiveRef.current) {
                 continue;
               }
 
@@ -5334,7 +5388,10 @@ function App() {
                 continue;
               }
 
-              if (now - genericComponentAgesRef.current.get(comboKey) < GENERIC_PROMPT_DELAY_MS) {
+              if (
+                GENERIC_TEMPLATE_NEEDS_DELAY[template.type] &&
+                now - genericComponentAgesRef.current.get(comboKey) < GENERIC_PROMPT_DELAY_MS
+              ) {
                 continue;
               }
 
@@ -7793,6 +7850,10 @@ function App() {
       clearTimeout(eventBannerTimeoutRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    tutorialActiveRef.current = tutorialStep !== null;
+  }, [tutorialStep]);
 
   // Tutorial progression: polls the ref-backed simulation state for the
   // current step's completion condition.
