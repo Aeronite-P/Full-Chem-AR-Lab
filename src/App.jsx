@@ -8723,7 +8723,7 @@ function App() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: clamp(10px, 1.8vw, 16px);
+          gap: clamp(14px, 1.8vw, 16px);
         }
 
         .camera-title {
@@ -8791,14 +8791,18 @@ function App() {
             justify-items: center;
           }
 
+          /* Stacked layout: let the panels breathe at full width instead of
+             staying pinned to their narrow desktop-sidebar sizes. */
           .size-slider-panel {
             justify-self: center;
-            max-width: min(240px, 100%);
+            width: 100% !important;
+            max-width: min(480px, 100%) !important;
           }
 
           .control-panel {
             justify-self: center;
-            max-width: min(300px, 100%);
+            width: 100%;
+            max-width: min(480px, 100%);
           }
 
           .panel-card {
@@ -8831,7 +8835,7 @@ function App() {
         style={{
           pointerEvents: "none",
           zIndex: 1,
-          fontSize: "clamp(10px, 1.2vw, 12px)",
+          fontSize: "clamp(12px, 1.2vw, 12px)",
           fontWeight: 700,
           letterSpacing: "0.18em",
           textTransform: "uppercase",
@@ -8844,7 +8848,7 @@ function App() {
           fontFamily:
             '"Segoe UI", "Helvetica Neue", Arial, sans-serif',
           whiteSpace: "nowrap",
-          marginBottom: "clamp(10px, 2vw, 18px)",
+          marginBottom: "clamp(12px, 2vw, 18px)",
         }}
       >
         (C) SHIV PRAHALATHAN
@@ -8855,7 +8859,7 @@ function App() {
         style={{
           zIndex: 30,
           width: "min(100%, 240px)",
-          padding: "clamp(10px, 1.4vw, 14px) clamp(10px, 1.4vw, 12px)",
+          padding: "clamp(12px, 1.4vw, 14px) clamp(12px, 1.4vw, 12px)",
           textAlign: "left",
           background: "rgba(15, 23, 42, 0.58)",
           border: "1px solid rgba(255, 255, 255, 0.14)",
@@ -8864,7 +8868,7 @@ function App() {
           boxShadow: "0 12px 28px rgba(15, 23, 42, 0.16)",
         }}
       >
-        <div style={{ fontSize: "clamp(12px, 1.4vw, 13px)", fontWeight: 700, marginBottom: "10px" }}>
+        <div style={{ fontSize: "clamp(13px, 1.4vw, 13px)", fontWeight: 700, marginBottom: "10px" }}>
           Atom / Molecule Size
         </div>
         <input
@@ -8883,7 +8887,7 @@ function App() {
         <div
           style={{
             marginTop: "8px",
-            fontSize: "clamp(11px, 1.4vw, 12px)",
+            fontSize: "clamp(12px, 1.4vw, 12px)",
             opacity: 0.78,
             fontVariantNumeric: "tabular-nums",
           }}
@@ -8892,11 +8896,11 @@ function App() {
         </div>
         <label
           style={{
-            marginTop: "clamp(10px, 1.5vw, 12px)",
+            marginTop: "clamp(11px, 1.5vw, 12px)",
             display: "flex",
             alignItems: "center",
-            gap: "clamp(8px, 1.2vw, 10px)",
-            fontSize: "clamp(11px, 1.2vw, 12px)",
+            gap: "clamp(9px, 1.2vw, 10px)",
+            fontSize: "clamp(12px, 1.2vw, 12px)",
             fontWeight: 600,
             lineHeight: 1.3,
             cursor: "pointer",
@@ -8920,11 +8924,11 @@ function App() {
         </label>
         <label
           style={{
-            marginTop: "clamp(8px, 1.2vw, 10px)",
+            marginTop: "clamp(9px, 1.2vw, 10px)",
             display: "flex",
             alignItems: "center",
-            gap: "clamp(8px, 1.2vw, 10px)",
-            fontSize: "clamp(11px, 1.2vw, 12px)",
+            gap: "clamp(9px, 1.2vw, 10px)",
+            fontSize: "clamp(12px, 1.2vw, 12px)",
             fontWeight: 600,
             lineHeight: 1.3,
             cursor: "pointer",
@@ -8948,11 +8952,11 @@ function App() {
         </label>
         <label
           style={{
-            marginTop: "clamp(8px, 1.2vw, 10px)",
+            marginTop: "clamp(9px, 1.2vw, 10px)",
             display: "flex",
             alignItems: "center",
-            gap: "clamp(8px, 1.2vw, 10px)",
-            fontSize: "clamp(11px, 1.2vw, 12px)",
+            gap: "clamp(9px, 1.2vw, 10px)",
+            fontSize: "clamp(12px, 1.2vw, 12px)",
             fontWeight: 600,
             lineHeight: 1.3,
             cursor: "pointer",
@@ -8976,12 +8980,12 @@ function App() {
         </label>
         <div
           style={{
-            marginTop: "clamp(12px, 1.8vw, 14px)",
-            paddingTop: "clamp(10px, 1.6vw, 12px)",
+            marginTop: "clamp(13px, 1.8vw, 14px)",
+            paddingTop: "clamp(11px, 1.6vw, 12px)",
             borderTop: "1px solid rgba(255, 255, 255, 0.1)",
           }}
         >
-          <div style={{ fontSize: "clamp(12px, 1.4vw, 13px)", fontWeight: 700, marginBottom: "8px" }}>
+          <div style={{ fontSize: "clamp(13px, 1.4vw, 13px)", fontWeight: 700, marginBottom: "8px" }}>
             📘 Tutorial
           </div>
           {tutorialStep === null ? (
@@ -8997,7 +9001,7 @@ function App() {
                 color: "#d9faff",
                 cursor: "pointer",
                 fontWeight: 600,
-                fontSize: "clamp(11px, 1.3vw, 12px)",
+                fontSize: "clamp(12px, 1.3vw, 12px)",
               }}
             >
               Start Tutorial
@@ -9006,7 +9010,7 @@ function App() {
             <div>
               <div
                 style={{
-                  fontSize: "clamp(10px, 1.2vw, 11px)",
+                  fontSize: "clamp(11px, 1.2vw, 11px)",
                   color: "#7dd3fc",
                   fontWeight: 700,
                   letterSpacing: "0.08em",
@@ -9018,7 +9022,7 @@ function App() {
               <div
                 style={{
                   marginTop: "6px",
-                  fontSize: "clamp(11px, 1.3vw, 12px)",
+                  fontSize: "clamp(12px, 1.3vw, 12px)",
                   lineHeight: 1.5,
                   color: "rgba(255, 255, 255, 0.92)",
                 }}
@@ -9037,7 +9041,7 @@ function App() {
                   background: "rgba(255, 255, 255, 0.06)",
                   color: "rgba(255, 255, 255, 0.75)",
                   cursor: "pointer",
-                  fontSize: "clamp(10px, 1.2vw, 11px)",
+                  fontSize: "clamp(11px, 1.2vw, 11px)",
                   fontWeight: 600,
                 }}
               >
@@ -9070,13 +9074,13 @@ function App() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: "clamp(8px, 1.6vw, 12px)",
-            marginBottom: "clamp(10px, 1.6vw, 14px)",
+            gap: "clamp(11px, 1.6vw, 12px)",
+            marginBottom: "clamp(12px, 1.6vw, 14px)",
           }}
         >
           <div>
             <div style={{ fontSize: "clamp(14px, 1.8vw, 15px)", fontWeight: 700 }}>Controls</div>
-            <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", opacity: 0.66, marginTop: "3px" }}>
+            <div style={{ fontSize: "clamp(12px, 1.4vw, 12px)", opacity: 0.66, marginTop: "3px" }}>
               Tap the toggle (or press M) for the atom menu
             </div>
           </div>
@@ -9089,7 +9093,7 @@ function App() {
               border: "1px solid rgba(255, 255, 255, 0.14)",
               background: menuOpen ? "rgba(125, 211, 252, 0.16)" : "rgba(255, 255, 255, 0.06)",
               color: menuOpen ? "#bae6fd" : "rgba(255, 255, 255, 0.72)",
-              fontSize: "clamp(10px, 1.2vw, 11px)",
+              fontSize: "clamp(11px, 1.2vw, 11px)",
               fontWeight: 700,
               letterSpacing: "0.08em",
               textTransform: "uppercase",
@@ -9100,15 +9104,15 @@ function App() {
           </button>
         </div>
         {menuOpen ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "clamp(10px, 1.5vw, 12px)" }}>
-            <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "clamp(11px, 1.5vw, 12px)" }}>
+            <div style={{ fontSize: "clamp(12px, 1.4vw, 12px)", opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.08em" }}>
               Atom Menu
             </div>
             <button
               type="button"
               onClick={toggleDeleteMode}
               style={{
-                padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
                 borderRadius: "10px",
                 border: deleteMode
                   ? "1px solid rgba(248, 113, 113, 0.85)"
@@ -9127,7 +9131,7 @@ function App() {
               type="button"
               onClick={toggleBondingMode}
               style={{
-                padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
                 borderRadius: "10px",
                 border: bondingMode
                   ? "1px solid rgba(125, 211, 252, 0.85)"
@@ -9146,14 +9150,14 @@ function App() {
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                gap: "clamp(8px, 1.4vw, 10px)",
+                gap: "clamp(9px, 1.4vw, 10px)",
               }}
             >
               <button
                 type="button"
                 onClick={() => spawnAtom("H")}
                 style={{
-                  padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
                   borderRadius: "10px",
                   border: "1px solid rgba(255, 255, 255, 0.14)",
                   background: "rgba(255, 255, 255, 0.08)",
@@ -9167,7 +9171,7 @@ function App() {
                 type="button"
                 onClick={() => spawnAtom("O")}
                 style={{
-                  padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
                   borderRadius: "10px",
                   border: "1px solid rgba(255, 255, 255, 0.14)",
                   background: "rgba(255, 255, 255, 0.08)",
@@ -9181,7 +9185,7 @@ function App() {
                 type="button"
                 onClick={() => spawnAtom("C")}
                 style={{
-                  padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
                   borderRadius: "10px",
                   border: "1px solid rgba(255, 255, 255, 0.14)",
                   background: "rgba(255, 255, 255, 0.08)",
@@ -9195,7 +9199,7 @@ function App() {
                 type="button"
                 onClick={() => spawnAtom("N")}
                 style={{
-                  padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
                   borderRadius: "10px",
                   border: "1px solid rgba(255, 255, 255, 0.14)",
                   background: "rgba(255, 255, 255, 0.08)",
@@ -9209,7 +9213,7 @@ function App() {
                 type="button"
                 onClick={() => spawnAtom("Cl")}
                 style={{
-                  padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
                   borderRadius: "10px",
                   border: "1px solid rgba(255, 255, 255, 0.14)",
                   background: "rgba(255, 255, 255, 0.08)",
@@ -9223,7 +9227,7 @@ function App() {
                 type="button"
                 onClick={() => spawnAtom("Na")}
                 style={{
-                  padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
                   borderRadius: "10px",
                   border: "1px solid rgba(255, 255, 255, 0.14)",
                   background: "rgba(255, 255, 255, 0.08)",
@@ -9237,7 +9241,7 @@ function App() {
                 type="button"
                 onClick={() => spawnAtom("S")}
                 style={{
-                  padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
                   borderRadius: "10px",
                   border: "1px solid rgba(255, 255, 255, 0.14)",
                   background: "rgba(255, 255, 255, 0.08)",
@@ -9252,17 +9256,17 @@ function App() {
         ) : null}
         <div
           style={{
-            marginTop: menuOpen ? "clamp(12px, 1.8vw, 16px)" : "0",
-            paddingTop: menuOpen ? "clamp(12px, 1.8vw, 16px)" : "0",
+            marginTop: menuOpen ? "clamp(14px, 1.8vw, 16px)" : "0",
+            paddingTop: menuOpen ? "clamp(14px, 1.8vw, 16px)" : "0",
             borderTop: menuOpen ? "1px solid rgba(255, 255, 255, 0.08)" : "none",
             display: "flex",
             flexDirection: "column",
-            gap: "clamp(10px, 1.5vw, 12px)",
+            gap: "clamp(11px, 1.5vw, 12px)",
           }}
         >
           <div
             style={{
-              padding: "clamp(10px, 1.6vw, 12px) clamp(12px, 1.8vw, 14px)",
+              padding: "clamp(11px, 1.6vw, 12px) clamp(13px, 1.8vw, 14px)",
               borderRadius: "12px",
               background: "rgba(255, 255, 255, 0.05)",
               border: "1px solid rgba(255, 255, 255, 0.08)",
@@ -9270,7 +9274,7 @@ function App() {
           >
             <div
               style={{
-                fontSize: "clamp(11px, 1.4vw, 12px)",
+                fontSize: "clamp(12px, 1.4vw, 12px)",
                 opacity: 0.68,
                 textTransform: "uppercase",
                 letterSpacing: "0.08em",
@@ -9290,10 +9294,10 @@ function App() {
                     flexWrap: "wrap",
                   }}
                 >
-                  <div style={{ fontSize: "clamp(13px, 1.7vw, 14px)", fontWeight: 700 }}>
+                  <div style={{ fontSize: "clamp(14px, 1.7vw, 14px)", fontWeight: 700 }}>
                     {currentMoleculeInfo?.name ?? currentInfoMolecule.displayLabel}
                   </div>
-                  <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", opacity: 0.65 }}>
+                  <div style={{ fontSize: "clamp(12px, 1.4vw, 12px)", opacity: 0.65 }}>
                     {currentInfoMolecule.displayLabel}
                   </div>
                 </div>
@@ -9303,7 +9307,7 @@ function App() {
                       display: "flex",
                       flexDirection: "column",
                       gap: "4px",
-                      fontSize: "clamp(11px, 1.35vw, 12px)",
+                      fontSize: "clamp(12px, 1.35vw, 12px)",
                       lineHeight: 1.45,
                       color: "rgba(255, 255, 255, 0.88)",
                       marginBottom: "8px",
@@ -9336,7 +9340,7 @@ function App() {
                     onClick={() => toggleWaterVisualMode(currentInfoMolecule.id)}
                     style={{
                       width: "100%",
-                      padding: "clamp(8px, 1.4vw, 10px) clamp(10px, 1.6vw, 12px)",
+                      padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
                       borderRadius: "10px",
                       border: "1px solid rgba(125, 211, 252, 0.24)",
                       background: "rgba(14, 116, 144, 0.18)",
@@ -9350,14 +9354,14 @@ function App() {
                 ) : null}
               </>
             ) : (
-              <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", opacity: 0.72, lineHeight: 1.5 }}>
+              <div style={{ fontSize: "clamp(12px, 1.4vw, 12px)", opacity: 0.72, lineHeight: 1.5 }}>
                 Hover or grab a molecule to inspect it.
               </div>
             )}
           </div>
           <div
             style={{
-              padding: "clamp(10px, 1.6vw, 12px) clamp(12px, 1.8vw, 14px)",
+              padding: "clamp(11px, 1.6vw, 12px) clamp(13px, 1.8vw, 14px)",
               borderRadius: "12px",
               background: "rgba(255, 255, 255, 0.05)",
               border: "1px solid rgba(255, 255, 255, 0.08)",
@@ -9381,7 +9385,7 @@ function App() {
             >
               <span
                 style={{
-                  fontSize: "clamp(11px, 1.4vw, 12px)",
+                  fontSize: "clamp(12px, 1.4vw, 12px)",
                   opacity: 0.85,
                   textTransform: "uppercase",
                   letterSpacing: "0.08em",
@@ -9416,7 +9420,7 @@ function App() {
                         gap: "8px",
                         padding: "5px 8px",
                         borderRadius: "8px",
-                        fontSize: "clamp(11px, 1.3vw, 12px)",
+                        fontSize: "clamp(12px, 1.3vw, 12px)",
                         background: isFound ? "rgba(34, 197, 94, 0.1)" : "rgba(255, 255, 255, 0.03)",
                         border: isFound
                           ? "1px solid rgba(134, 239, 172, 0.22)"
@@ -9435,7 +9439,7 @@ function App() {
           {selectedAtomDetails ? (
             <div
               style={{
-                padding: "clamp(10px, 1.6vw, 12px) clamp(12px, 1.8vw, 14px)",
+                padding: "clamp(11px, 1.6vw, 12px) clamp(13px, 1.8vw, 14px)",
                 textAlign: "left",
                 background: "rgba(255, 255, 255, 0.05)",
                 border: "1px solid rgba(255, 255, 255, 0.08)",
@@ -9443,16 +9447,16 @@ function App() {
                 color: "white",
               }}
             >
-              <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", opacity: 0.68, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              <div style={{ fontSize: "clamp(12px, 1.4vw, 12px)", opacity: 0.68, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 Selected Atom
               </div>
               <div style={{ fontSize: "clamp(14px, 1.8vw, 15px)", fontWeight: 700, marginTop: "8px" }}>
                 {selectedAtomDetails.name}
               </div>
-              <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", opacity: 0.8, marginTop: "2px" }}>
+              <div style={{ fontSize: "clamp(12px, 1.4vw, 12px)", opacity: 0.8, marginTop: "2px" }}>
                 {selectedAtomDetails.symbol}
               </div>
-              <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", marginTop: "8px", lineHeight: 1.45 }}>
+              <div style={{ fontSize: "clamp(12px, 1.4vw, 12px)", marginTop: "8px", lineHeight: 1.45 }}>
                 <div>Atomic number: {selectedAtomDetails.atomicNumber}</div>
                 <div>Valence electrons: {selectedAtomDetails.valenceElectrons}</div>
                 <div>Common bonds: {selectedAtomDetails.commonBonds}</div>
@@ -9460,17 +9464,17 @@ function App() {
             </div>
           ) : null}
           {deleteMode ? (
-            <div style={{ fontSize: "clamp(12px, 1.5vw, 13px)", color: "#fca5a5", fontWeight: 700 }}>
+            <div style={{ fontSize: "clamp(13px, 1.5vw, 13px)", color: "#fca5a5", fontWeight: 700 }}>
               Delete Mode is ON
             </div>
           ) : null}
           {bondingMode ? (
-            <div style={{ fontSize: "clamp(12px, 1.5vw, 13px)", color: "#7dd3fc", fontWeight: 700 }}>
+            <div style={{ fontSize: "clamp(13px, 1.5vw, 13px)", color: "#7dd3fc", fontWeight: 700 }}>
               Bonding Mode is ON
             </div>
           ) : null}
           {bondLimitMessage ? (
-            <div style={{ fontSize: "clamp(11px, 1.4vw, 12px)", color: "#fca5a5", fontWeight: 700 }}>
+            <div style={{ fontSize: "clamp(12px, 1.4vw, 12px)", color: "#fca5a5", fontWeight: 700 }}>
               {bondLimitMessage}
             </div>
           ) : null}
@@ -9522,7 +9526,7 @@ function App() {
               <div
                 style={{
                   marginTop: "8px",
-                  fontSize: "clamp(12px, 1.5vw, 13px)",
+                  fontSize: "clamp(13px, 1.5vw, 13px)",
                   lineHeight: 1.55,
                   opacity: 0.85,
                 }}
@@ -9594,7 +9598,7 @@ function App() {
               left: "50%",
               zIndex: 6,
               pointerEvents: "none",
-              padding: "clamp(12px, 2vw, 16px) clamp(18px, 3vw, 26px)",
+              padding: "clamp(14px, 2vw, 16px) clamp(18px, 3vw, 26px)",
               borderRadius: "16px",
               textAlign: "center",
               background: "linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(2, 6, 23, 0.86) 100%)",
@@ -9627,7 +9631,7 @@ function App() {
             <div
               style={{
                 marginTop: "4px",
-                fontSize: "clamp(11px, 1.5vw, 13px)",
+                fontSize: "clamp(13px, 1.5vw, 13px)",
                 color: "rgba(255, 255, 255, 0.88)",
               }}
             >
@@ -9640,14 +9644,14 @@ function App() {
             onClick={(event) => event.stopPropagation()}
             style={{
               position: "absolute",
-              top: "clamp(10px, 2vw, 16px)",
+              top: "clamp(14px, 2vw, 16px)",
               left: "50%",
               transform: "translateX(-50%)",
               display: "flex",
               flexDirection: "column",
-              gap: "clamp(8px, 1.5vw, 10px)",
+              gap: "clamp(9px, 1.5vw, 10px)",
               alignItems: "center",
-              padding: "clamp(12px, 1.8vw, 14px) clamp(12px, 2vw, 16px)",
+              padding: "clamp(13px, 1.8vw, 14px) clamp(14px, 2vw, 16px)",
               minWidth: "min(260px, calc(100% - 24px))",
               maxWidth: "calc(100% - 24px)",
               background: "rgba(15, 23, 42, 0.84)",
@@ -9658,7 +9662,7 @@ function App() {
               zIndex: 3,
             }}
             >
-              <div style={{ fontSize: "clamp(13px, 1.8vw, 15px)", fontWeight: 700 }}>
+              <div style={{ fontSize: "clamp(14px, 1.8vw, 15px)", fontWeight: 700 }}>
               {moleculePrompt.kind === "generic" || moleculePrompt.kind === "genericReaction"
                 ? moleculePrompt.promptText
                 : moleculePrompt.kind === "reaction" && moleculePrompt.type === "carbonicAcid"
@@ -10057,7 +10061,7 @@ function App() {
             style={{
               width: "min(100%, 620px)",
               margin: "0 auto",
-              padding: "clamp(12px, 2vw, 16px) clamp(16px, 2.4vw, 22px)",
+              padding: "clamp(14px, 2vw, 16px) clamp(16px, 2.4vw, 22px)",
               borderRadius: "20px",
               border: "1px solid rgba(148, 163, 184, 0.2)",
               background: "rgba(7, 20, 39, 0.48)",
@@ -10070,7 +10074,7 @@ function App() {
           >
             <div
               style={{
-                fontSize: "clamp(10px, 1.3vw, 11px)",
+                fontSize: "clamp(11px, 1.3vw, 11px)",
                 opacity: 0.68,
                 textTransform: "uppercase",
                 letterSpacing: "0.16em",
@@ -10105,9 +10109,9 @@ function App() {
                 display: "flex",
                 justifyContent: "center",
                 alignItems: "center",
-                gap: "clamp(10px, 2vw, 18px)",
+                gap: "clamp(12px, 2vw, 18px)",
                 flexWrap: "wrap",
-                fontSize: "clamp(11px, 1.45vw, 13px)",
+                fontSize: "clamp(12px, 1.45vw, 13px)",
                 lineHeight: 1.5,
                 color: "rgba(226, 232, 240, 0.92)",
               }}
@@ -10119,7 +10123,7 @@ function App() {
             <div
               style={{
                 marginTop: "10px",
-                fontSize: "clamp(11px, 1.3vw, 12px)",
+                fontSize: "clamp(12px, 1.3vw, 12px)",
                 opacity: 0.72,
               }}
             >
