@@ -1029,6 +1029,7 @@ function App() {
   const genericComponentAgesRef = useRef(new Map());
   const tutorialActiveRef = useRef(false);
   const promptClosedAtRef = useRef(0);
+  const deviceScaleRef = useRef(1);
   const showPolarityRef = useRef(false);
   const soundEnabledRef = useRef(true);
   const audioContextRef = useRef(null);
@@ -1688,7 +1689,10 @@ function App() {
     );
   };
 
-  const getVisualScale = () => atomSizeScaleRef.current;
+  // User size slider × device scale. The device scale boosts everything on
+  // small viewports so atoms/molecules stay finger-sized and readable on
+  // phones instead of shrinking with the screen.
+  const getVisualScale = () => atomSizeScaleRef.current * deviceScaleRef.current;
 
   const getScaledAtomRadiusPx = () => BASE_ATOM_RADIUS_PX * getVisualScale();
 
@@ -3758,14 +3762,32 @@ function App() {
             "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm"
           );
 
-          handLandmarker = await HandLandmarker.createFromOptions(vision, {
+          // Phones: track fewer hands (2 people max realistically fit a phone
+          // frame) so inference stays fast enough to feel smooth.
+          const isSmallScreen =
+            Math.min(window.screen?.width ?? 1024, window.screen?.height ?? 768) < 700;
+          const buildLandmarkerOptions = (delegate) => ({
             baseOptions: {
               modelAssetPath:
                 "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+              delegate,
             },
-            numHands: 6,
+            numHands: isSmallScreen ? 3 : 6,
             runningMode: "VIDEO",
           });
+
+          try {
+            // GPU inference is dramatically faster, especially on mobile.
+            handLandmarker = await HandLandmarker.createFromOptions(
+              vision,
+              buildLandmarkerOptions("GPU")
+            );
+          } catch {
+            handLandmarker = await HandLandmarker.createFromOptions(
+              vision,
+              buildLandmarkerOptions("CPU")
+            );
+          }
         } catch (cameraError) {
           console.error("Camera unavailable, running in touch-only mode:", cameraError);
         }
@@ -3778,6 +3800,11 @@ function App() {
         }
 
         const drawFrame = () => {
+          // Boost the scene scale on narrow viewports (phones) so atoms render
+          // finger-sized; 760px is the desktop reference width where scale = 1.
+          const viewportWidthPx = viewportRef.current?.clientWidth ?? 760;
+          deviceScaleRef.current = clampValue(760 / Math.max(300, viewportWidthPx), 1, 1.9);
+
           const atomRadius = getScaledAtomRadiusPx();
           const atomGrabRadius = getScaledAtomGrabRadiusPx();
           const scaledHydrogenBondTargetPx = WATER_HYDROGEN_BOND_TARGET_PX * getVisualScale();
@@ -6938,8 +6965,14 @@ function App() {
             let pinchDetected = false;
 
             if (thumbTip && indexTip) {
-              const dx = thumbTip.x - indexTip.x;
-              const dy = thumbTip.y - indexTip.y;
+              // Measure the pinch in raw video-frame units: the crop remap
+              // stretches one axis on non-4:3 cameras (portrait phones), which
+              // would otherwise inflate the distance and make pinches
+              // impossible to register.
+              const pinchScaleX = videoAspect > boxAspect ? boxAspect / videoAspect : 1;
+              const pinchScaleY = videoAspect < boxAspect ? videoAspect / boxAspect : 1;
+              const dx = (thumbTip.x - indexTip.x) * pinchScaleX;
+              const dy = (thumbTip.y - indexTip.y) * pinchScaleY;
               const distance = Math.hypot(dx, dy);
               const pinchStartThreshold = 0.05;
               const pinchEndThreshold = 0.07;
