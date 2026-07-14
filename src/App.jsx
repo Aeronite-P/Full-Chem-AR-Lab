@@ -3741,7 +3741,9 @@ function App() {
         try {
           try {
             stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: "user" },
+              // 4:3 matches the viewport box, minimizing the cover-crop (and
+              // the landmark remapping) on phones.
+              video: { facingMode: "user", aspectRatio: { ideal: 4 / 3 } },
             });
           } catch {
             stream = await navigator.mediaDevices.getUserMedia({
@@ -6861,17 +6863,19 @@ function App() {
             return true;
           };
 
-          if (video.videoWidth && video.videoHeight) {
-            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-              canvas.width = video.videoWidth;
-              canvas.height = video.videoHeight;
-            }
-          } else if (handLandmarker) {
-            animationFrameId = requestAnimationFrame(drawFrame);
-            return;
-          } else if (canvas.width !== 960 || canvas.height !== 720) {
+          // Fixed internal resolution (4:3, same as the viewport box) so atoms
+          // stay circular and molecule geometry renders identically on every
+          // device — phone cameras often deliver portrait or odd aspect
+          // frames, which previously stretched the canvas and squashed
+          // everything drawn on it.
+          if (canvas.width !== 960 || canvas.height !== 720) {
             canvas.width = 960;
             canvas.height = 720;
+          }
+
+          if (handLandmarker && (!video.videoWidth || !video.videoHeight)) {
+            animationFrameId = requestAnimationFrame(drawFrame);
+            return;
           }
 
           let results = { landmarks: [] };
@@ -6888,17 +6892,47 @@ function App() {
           context.clearRect(0, 0, canvas.width, canvas.height);
           context.fillStyle = "#67e8f9";
           const frameNow = performance.now();
-          const detections = results.landmarks.map((landmarks) => ({
-            landmarks,
-            wrist: landmarks[0] ?? { x: 0.5, y: 0.5 },
-          }));
+
+          // Landmarks are normalized to the raw camera frame, but the video is
+          // displayed with object-fit: cover inside a 4:3 box — anything the
+          // crop hides must be remapped or fingers drift off their on-screen
+          // position (worst on portrait phone cameras).
+          const boxAspect = 4 / 3;
+          const videoAspect =
+            video.videoWidth && video.videoHeight
+              ? video.videoWidth / video.videoHeight
+              : boxAspect;
+          const mapVideoPointToBox = (point) => {
+            if (Math.abs(videoAspect - boxAspect) < 0.001) {
+              return point;
+            }
+
+            if (videoAspect > boxAspect) {
+              // Wider than the box: left/right edges are cropped.
+              const visibleFraction = boxAspect / videoAspect;
+              return { ...point, x: (point.x - (1 - visibleFraction) / 2) / visibleFraction };
+            }
+
+            // Taller than the box (portrait cameras): top/bottom are cropped.
+            const visibleFraction = videoAspect / boxAspect;
+            return { ...point, y: (point.y - (1 - visibleFraction) / 2) / visibleFraction };
+          };
+
+          const detections = results.landmarks.map((rawLandmarks) => {
+            const mappedLandmarks = rawLandmarks.map(mapVideoPointToBox);
+
+            return {
+              landmarks: mappedLandmarks,
+              wrist: mappedLandmarks[0] ?? { x: 0.5, y: 0.5 },
+            };
+          });
           const matchedHandStates = matchHandStatesToDetections(detections);
 
-          for (const [handIndex, rawLandmarks] of results.landmarks.entries()) {
+          for (const [handIndex, detection] of detections.entries()) {
             const handState = matchedHandStates[handIndex] ?? null;
             const landmarks = handState
-              ? smoothHandLandmarks(handState, rawLandmarks, frameNow)
-              : rawLandmarks;
+              ? smoothHandLandmarks(handState, detection.landmarks, frameNow)
+              : detection.landmarks;
             const thumbTip = landmarks[4];
             const indexTip = landmarks[8];
             let pinchDetected = false;
