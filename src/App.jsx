@@ -270,12 +270,13 @@ const GENERIC_MOLECULE_TEMPLATES = [
       { type: "O", x: 84, y: 38 },
     ],
     // Resonance hybrid: both O-O bonds equivalent (order 1.5), like real
-    // ozone's two identical 128 pm bonds.
+    // ozone's two identical 128 pm bonds. Terminal oxygens average 2.5 lone
+    // pairs across the two resonance forms (18 valence e- total).
     bonds: [
       { a: 0, b: 1, order: "resonance" },
       { a: 0, b: 2, order: "resonance" },
     ],
-    lonePairs: { 0: 1, 1: 2, 2: 2 },
+    lonePairs: { 0: 1, 1: 2.5, 2: 2.5 },
     prompt: "Would you like to make ozone (O3)?",
   },
   {
@@ -412,11 +413,12 @@ const GENERIC_MOLECULE_TEMPLATES = [
     ],
     // Resonance hybrid: both S-O bonds are equivalent (order 1.5) — real
     // SO2 has two identical 143 pm bonds, not one double and one single.
+    // Terminal oxygens average 2.5 lone pairs (18 valence e- total).
     bonds: [
       { a: 0, b: 1, order: "resonance" },
       { a: 0, b: 2, order: "resonance" },
     ],
-    lonePairs: { 0: 1, 1: 2, 2: 2 },
+    lonePairs: { 0: 1, 1: 2.5, 2: 2.5 },
     prompt: "Would you like to make sulfur dioxide (SO2)?",
   },
   {
@@ -679,11 +681,11 @@ const compositionMatchesTemplate = (template, counts) => {
 
 // Info shown on the molecule inspector card. Keyed by formula.
 const MOLECULE_INFO = {
-  H2: { name: "Hydrogen gas", molarMass: "2.02", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "The lightest molecule in the universe — it powers stars." },
-  O2: { name: "Oxygen gas", molarMass: "32.00", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "About 21% of the air you breathe." },
-  N2: { name: "Nitrogen gas", molarMass: "28.02", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "78% of air — its triple bond makes it very unreactive." },
+  H2: { name: "Hydrogen gas", molarMass: "2.02", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Nonpolar", fact: "The lightest molecule in the universe — it powers stars." },
+  O2: { name: "Oxygen gas", molarMass: "32.00", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Nonpolar", fact: "About 21% of the air you breathe." },
+  N2: { name: "Nitrogen gas", molarMass: "28.02", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Nonpolar", fact: "78% of air — its triple bond makes it very unreactive." },
   H2O: { name: "Water", molarMass: "18.02", geometry: "Bent", bondAngle: "104.5°", polarity: "Polar", fact: "Its polarity makes it the “universal solvent.”" },
-  CO: { name: "Carbon monoxide", molarMass: "28.01", geometry: "Linear", bondAngle: "180°", polarity: "Polar", fact: "Toxic — it binds hemoglobin about 240× better than O2." },
+  CO: { name: "Carbon monoxide", molarMass: "28.01", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Slightly polar", fact: "Toxic — it binds hemoglobin about 240× better than O2." },
   CO2: { name: "Carbon dioxide", molarMass: "44.01", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "You exhale it; plants turn it back into oxygen." },
   NH3: { name: "Ammonia", molarMass: "17.03", geometry: "Trigonal pyramidal", bondAngle: "107°", polarity: "Polar", fact: "Used to make the fertilizer that feeds half the world." },
   CH4: { name: "Methane", molarMass: "16.04", geometry: "Tetrahedral", bondAngle: "109.5°", polarity: "Nonpolar", fact: "Natural gas — and a potent greenhouse gas." },
@@ -692,7 +694,7 @@ const MOLECULE_INFO = {
   "H3O+": { name: "Hydronium", molarMass: "19.02", geometry: "Trigonal pyramidal", bondAngle: "~113°", polarity: "+1 cation", fact: "The true carrier of acidity in water." },
   "NH4+": { name: "Ammonium", molarMass: "18.04", geometry: "Tetrahedral", bondAngle: "109.5°", polarity: "+1 cation", fact: "Ammonia that grabbed an extra proton." },
   NaCl: { name: "Sodium chloride", molarMass: "58.44", geometry: "Ionic pair", bondAngle: "—", polarity: "Ionic", fact: "Table salt — an electron fully transfers from Na to Cl." },
-  HCl: { name: "Hydrogen chloride", molarMass: "36.46", geometry: "Linear", bondAngle: "180°", polarity: "Polar", fact: "Dissolved in water it becomes hydrochloric acid — your stomach makes it." },
+  HCl: { name: "Hydrogen chloride", molarMass: "36.46", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Polar", fact: "Dissolved in water it becomes hydrochloric acid — your stomach makes it." },
   "OH-": { name: "Hydroxide", molarMass: "17.01", geometry: "Linear", bondAngle: "—", polarity: "−1 anion", fact: "The signature ion of bases." },
   H2O2: { name: "Hydrogen peroxide", molarMass: "34.01", geometry: "Bent at each O", bondAngle: "~95°", polarity: "Polar", fact: "An antiseptic that decomposes into water and oxygen." },
   O3: { name: "Ozone", molarMass: "48.00", geometry: "Bent (resonance hybrid)", bondAngle: "117°", polarity: "Slightly polar", fact: "Both O–O bonds are identical (order 1½) — the double bond is delocalized. The ozone layer absorbs harmful UV radiation." },
@@ -4410,6 +4412,18 @@ function App() {
               return [];
             }
 
+            // Fractional counts (2.5 on resonance-hybrid terminal oxygens):
+            // whole pairs draw filled; the delocalized half pair draws hollow.
+            const groupTotal = Math.ceil(lonePairCount);
+            const hasHalfPair = groupTotal > lonePairCount;
+            const markHalfPair = (groups) => {
+              if (hasHalfPair && groups.length > 0) {
+                const halfIndex = Math.floor(groups.length / 2);
+                groups[halfIndex] = { ...groups[halfIndex], half: true };
+              }
+              return groups;
+            };
+
             const atomCenter = {
               x: atom.position.x * canvas.width,
               y: atom.position.y * canvas.height,
@@ -4439,11 +4453,11 @@ function App() {
             const outerDistance = drawRadius * 0.22;
             const spreadDistance = drawRadius * 0.84;
 
-            if (lonePairCount === 1) {
+            if (groupTotal === 1) {
               if (molecule.formula === "NH3") {
                 const direction = { x: 0, y: -1 };
 
-                return [
+                return markHalfPair([
                   {
                     center: {
                       x: atomCenter.x,
@@ -4451,7 +4465,7 @@ function App() {
                     },
                     radialDirection: direction,
                   },
-                ];
+                ]);
               }
 
               const direction =
@@ -4459,7 +4473,7 @@ function App() {
                   ? { x: -neighborDirections[0].x, y: -neighborDirections[0].y }
                   : oppositeDirection;
 
-              return [
+              return markHalfPair([
                 {
                   center: {
                     x: atomCenter.x + direction.x * baseDistance,
@@ -4467,43 +4481,47 @@ function App() {
                   },
                   radialDirection: direction,
                 },
-              ];
+              ]);
             }
 
-            if (lonePairCount === 3) {
+            if (groupTotal === 3) {
               const outwardDirection = neighborDirections[0]
                 ? { x: -neighborDirections[0].x, y: -neighborDirections[0].y }
                 : { x: 0, y: -1 };
 
-              return [-1.25, 0, 1.25].map((rotation) => {
-                const direction = normalizeVector(rotateVector(outwardDirection, rotation));
+              return markHalfPair(
+                [-1.25, 0, 1.25].map((rotation) => {
+                  const direction = normalizeVector(rotateVector(outwardDirection, rotation));
 
-                return {
-                  center: {
-                    x: atomCenter.x + direction.x * baseDistance,
-                    y: atomCenter.y + direction.y * baseDistance,
-                  },
-                  radialDirection: direction,
-                };
-              });
+                  return {
+                    center: {
+                      x: atomCenter.x + direction.x * baseDistance,
+                      y: atomCenter.y + direction.y * baseDistance,
+                    },
+                    radialDirection: direction,
+                  };
+                })
+              );
             }
 
-            if (lonePairCount === 4) {
+            if (groupTotal === 4) {
               const outwardDirection = neighborDirections[0]
                 ? { x: -neighborDirections[0].x, y: -neighborDirections[0].y }
                 : { x: 0, y: -1 };
 
-              return [0, Math.PI / 2, Math.PI, -Math.PI / 2].map((rotation) => {
-                const direction = normalizeVector(rotateVector(outwardDirection, rotation));
+              return markHalfPair(
+                [0, Math.PI / 2, Math.PI, -Math.PI / 2].map((rotation) => {
+                  const direction = normalizeVector(rotateVector(outwardDirection, rotation));
 
-                return {
-                  center: {
-                    x: atomCenter.x + direction.x * baseDistance,
-                    y: atomCenter.y + direction.y * baseDistance,
-                  },
-                  radialDirection: direction,
-                };
-              });
+                  return {
+                    center: {
+                      x: atomCenter.x + direction.x * baseDistance,
+                      y: atomCenter.y + direction.y * baseDistance,
+                    },
+                    radialDirection: direction,
+                  };
+                })
+              );
             }
 
             if (
@@ -4516,40 +4534,44 @@ function App() {
               };
               const perpendicularDirection = rotateVector(outwardDirection, Math.PI / 2);
 
-              return [-1, 1].map((side) => ({
-                center: {
-                  x:
-                    atomCenter.x +
-                    outwardDirection.x * outerDistance +
-                    perpendicularDirection.x * spreadDistance * side,
-                  y:
-                    atomCenter.y +
-                    outwardDirection.y * outerDistance +
-                    perpendicularDirection.y * spreadDistance * side,
-                },
-                radialDirection: normalizeVector({
-                  x:
-                    outwardDirection.x * outerDistance +
-                    perpendicularDirection.x * spreadDistance * side,
-                  y:
-                    outwardDirection.y * outerDistance +
-                    perpendicularDirection.y * spreadDistance * side,
-                }),
-              }));
+              return markHalfPair(
+                [-1, 1].map((side) => ({
+                  center: {
+                    x:
+                      atomCenter.x +
+                      outwardDirection.x * outerDistance +
+                      perpendicularDirection.x * spreadDistance * side,
+                    y:
+                      atomCenter.y +
+                      outwardDirection.y * outerDistance +
+                      perpendicularDirection.y * spreadDistance * side,
+                  },
+                  radialDirection: normalizeVector({
+                    x:
+                      outwardDirection.x * outerDistance +
+                      perpendicularDirection.x * spreadDistance * side,
+                    y:
+                      outwardDirection.y * outerDistance +
+                      perpendicularDirection.y * spreadDistance * side,
+                  }),
+                }))
+              );
             }
 
-            return [-0.58, 0.58].map((rotation) => {
-              const direction = rotateVector(oppositeDirection, rotation);
-              const normalizedDirection = normalizeVector(direction, oppositeDirection);
+            return markHalfPair(
+              [-0.58, 0.58].map((rotation) => {
+                const direction = rotateVector(oppositeDirection, rotation);
+                const normalizedDirection = normalizeVector(direction, oppositeDirection);
 
-              return {
-                center: {
-                  x: atomCenter.x + normalizedDirection.x * baseDistance,
-                  y: atomCenter.y + normalizedDirection.y * baseDistance,
-                },
-                radialDirection: normalizedDirection,
-              };
-            });
+                return {
+                  center: {
+                    x: atomCenter.x + normalizedDirection.x * baseDistance,
+                    y: atomCenter.y + normalizedDirection.y * baseDistance,
+                  },
+                  radialDirection: normalizedDirection,
+                };
+              })
+            );
           };
 
           const drawAtomLonePairs = (atom, molecule, drawRadius) => {
@@ -4569,10 +4591,12 @@ function App() {
 
             context.save();
             context.fillStyle = LONE_PAIR_DOT_COLOR;
+            context.strokeStyle = LONE_PAIR_DOT_COLOR;
+            context.lineWidth = Math.max(1, dotRadius * 0.5);
             context.shadowColor = LONE_PAIR_DOT_GLOW;
             context.shadowBlur = 7 * getVisualScale();
 
-            lonePairGroups.forEach(({ center, radialDirection }) => {
+            lonePairGroups.forEach(({ center, radialDirection, half }) => {
               const tangentDirection = rotateVector(radialDirection, Math.PI / 2);
 
               [-0.5, 0.5].forEach((offsetSign) => {
@@ -4584,7 +4608,13 @@ function App() {
                   0,
                   Math.PI * 2
                 );
-                context.fill();
+
+                // Delocalized half pair (resonance hybrid) draws hollow.
+                if (half) {
+                  context.stroke();
+                } else {
+                  context.fill();
+                }
               });
             });
 
