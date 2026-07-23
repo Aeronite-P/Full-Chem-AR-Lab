@@ -1640,6 +1640,8 @@ function App() {
     deleteModeRef.current = false;
     setDeleteMode(false);
     setBondingModeState(false);
+    temperatureRef.current = 25;
+    setTemperature(25);
     addNotebookEntry("Lab reset — fresh bench");
   };
 
