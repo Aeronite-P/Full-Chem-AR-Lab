@@ -483,6 +483,7 @@ const REACTION_TEMPLATES = [
     reactantMolecules: { NH3: 1, HCl: 1 },
     products: ["NH4Cl"],
     energy: "exothermic",
+    deltaH: -176,
     prompt: "Base meets acid! React NH3 with HCl to form ammonium chloride (NH4Cl)?",
   },
   {
@@ -491,6 +492,9 @@ const REACTION_TEMPLATES = [
     reactantMolecules: { CH4: 1, O2: 2 },
     products: ["CO2", "H2O", "H2O"],
     energy: "exothermic",
+    deltaH: -890,
+    // Combustion needs ignition heat.
+    minTemperature: 100,
     prompt: "🔥 Combustion! Burn methane in oxygen (CH4 + 2 O2 → CO2 + 2 H2O)?",
   },
   {
@@ -502,6 +506,7 @@ const REACTION_TEMPLATES = [
     // (no follow-up prompt).
     autoClusterWaters: true,
     energy: "exothermic",
+    deltaH: -57,
     prompt: "Neutralization! The acid H3O⁺ and the base OH⁻ cancel into two waters?",
   },
   {
@@ -511,6 +516,7 @@ const REACTION_TEMPLATES = [
     reactantAtoms: { Na: 2 },
     products: ["NaOH", "NaOH", "H2"],
     energy: "exothermic",
+    deltaH: -368,
     prompt: "⚡ Sodium + water! React violently into sodium hydroxide and hydrogen gas?",
   },
   {
@@ -519,6 +525,7 @@ const REACTION_TEMPLATES = [
     reactantMolecules: { SO2: 1, H2O: 1 },
     products: ["H2SO3"],
     energy: "exothermic",
+    deltaH: -40,
     prompt: "Acid rain! Dissolve SO2 into water to form sulfurous acid (H2SO3)?",
   },
 ];
@@ -530,7 +537,36 @@ const LEGACY_PRODUCT_COMPOSITIONS = {
   H2O: { O: 1, H: 2 },
   CO2: { C: 1, O: 2 },
   H2: { H: 2 },
+  NH3: { N: 1, H: 3 },
 };
+
+// Equilibrium: unstable species fall apart on their own, faster when hot
+// (and thermal decomposition for NH4Cl). ΔH here is for the decomposition
+// direction — endothermic, the reverse of formation.
+const DECOMPOSITION_RULES = [
+  {
+    formula: "H2CO3",
+    products: ["CO2", "H2O"],
+    equation: "H2CO3 → CO2 + H2O",
+    baseHalfLifeS: 45,
+    deltaH: 20,
+  },
+  {
+    formula: "H2SO3",
+    products: ["SO2", "H2O"],
+    equation: "H2SO3 → SO2 + H2O",
+    baseHalfLifeS: 70,
+    deltaH: 40,
+  },
+  {
+    formula: "NH4Cl",
+    products: ["NH3", "HCl"],
+    equation: "NH4Cl → NH3 + HCl",
+    baseHalfLifeS: 8,
+    minTemperature: 250,
+    deltaH: 176,
+  },
+];
 
 const getReactionProductOffset = (productCount, productIndex) => {
   if (productCount === 1) {
@@ -658,6 +694,46 @@ const MOLECULE_INFO = {
   NH4Cl: { name: "Ammonium chloride", molarMass: "53.49", geometry: "Ionic (NH₄⁺ / Cl⁻)", bondAngle: "—", polarity: "Ionic", fact: "Forms as white smoke when ammonia and HCl vapors meet mid-air." },
   H2SO3: { name: "Sulfurous acid", molarMass: "82.08", geometry: "Pyramidal at S", bondAngle: "—", polarity: "Polar", fact: "The acid in acid rain — SO2 dissolved in water." },
 };
+
+// pH estimation: each acidic/basic species on screen shifts the lab's pH
+// away from neutral 7. Strong acids/bases shift harder than weak ones.
+const ACID_BASE_CONTRIBUTIONS = {
+  "H3O+": -2.2,
+  HCl: -1.8,
+  H2SO3: -0.9,
+  H2CO3: -0.5,
+  "OH-": 2.2,
+  NaOH: 1.8,
+  Na2O: 1.8,
+  NH3: 0.6,
+};
+
+const getEstimatedPH = (molecules) => {
+  const shift = molecules.reduce(
+    (sum, molecule) => sum + (ACID_BASE_CONTRIBUTIONS[molecule.formula] ?? 0),
+    0
+  );
+
+  return clampValue(7 + shift, 0, 14);
+};
+
+// Periodic table (periods 1-4) for the spawn drawer. Elements present in
+// ATOM_DETAILS are spawnable; the rest render grayed out as "coming soon".
+const PERIODIC_ELEMENTS = [
+  ["H", 1, 1, 1, "Hydrogen"], ["He", 2, 1, 18, "Helium"],
+  ["Li", 3, 2, 1, "Lithium"], ["Be", 4, 2, 2, "Beryllium"], ["B", 5, 2, 13, "Boron"],
+  ["C", 6, 2, 14, "Carbon"], ["N", 7, 2, 15, "Nitrogen"], ["O", 8, 2, 16, "Oxygen"],
+  ["F", 9, 2, 17, "Fluorine"], ["Ne", 10, 2, 18, "Neon"],
+  ["Na", 11, 3, 1, "Sodium"], ["Mg", 12, 3, 2, "Magnesium"], ["Al", 13, 3, 13, "Aluminium"],
+  ["Si", 14, 3, 14, "Silicon"], ["P", 15, 3, 15, "Phosphorus"], ["S", 16, 3, 16, "Sulfur"],
+  ["Cl", 17, 3, 17, "Chlorine"], ["Ar", 18, 3, 18, "Argon"],
+  ["K", 19, 4, 1, "Potassium"], ["Ca", 20, 4, 2, "Calcium"], ["Sc", 21, 4, 3, "Scandium"],
+  ["Ti", 22, 4, 4, "Titanium"], ["V", 23, 4, 5, "Vanadium"], ["Cr", 24, 4, 6, "Chromium"],
+  ["Mn", 25, 4, 7, "Manganese"], ["Fe", 26, 4, 8, "Iron"], ["Co", 27, 4, 9, "Cobalt"],
+  ["Ni", 28, 4, 10, "Nickel"], ["Cu", 29, 4, 11, "Copper"], ["Zn", 30, 4, 12, "Zinc"],
+  ["Ga", 31, 4, 13, "Gallium"], ["Ge", 32, 4, 14, "Germanium"], ["As", 33, 4, 15, "Arsenic"],
+  ["Se", 34, 4, 16, "Selenium"], ["Br", 35, 4, 17, "Bromine"], ["Kr", 36, 4, 18, "Krypton"],
+].map(([symbol, number, row, col, name]) => ({ symbol, number, row, col, name }));
 
 const DISCOVERED_MOLECULES_STORAGE_KEY = "chemArLabDiscoveredMolecules";
 const TUTORIAL_SEEN_STORAGE_KEY = "chemArLabTutorialSeen";
@@ -992,6 +1068,7 @@ function App() {
   });
   const [tutorialStep, setTutorialStep] = useState(null);
   const [showPolarity, setShowPolarity] = useState(false);
+  const [lewisView, setLewisView] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   // The branded landing gate: the camera doesn't start (and no permission
   // popup appears) until the user taps "Enter the Lab".
@@ -1001,6 +1078,11 @@ function App() {
   const [notebookEntries, setNotebookEntries] = useState([]);
   const [presentationMode, setPresentationMode] = useState(false);
   const [resetArmed, setResetArmed] = useState(false);
+  // Energy diagram card shown after each reaction (equation, exo/endo, ΔH).
+  const [energyDiagram, setEnergyDiagram] = useState(null);
+  // Lab temperature in °C: drives thermal motion, hydrogen-bond stability,
+  // combustion ignition, and decomposition rates.
+  const [temperature, setTemperature] = useState(25);
   const deleteModeRef = useRef(false);
   const bondingModeRef = useRef(false);
   const atomSizeScaleRef = useRef(1);
@@ -1040,7 +1122,14 @@ function App() {
   const deviceScaleRef = useRef(1);
   const notebookNextIdRef = useRef(1);
   const resetArmTimeoutRef = useRef(null);
+  const energyDiagramTimeoutRef = useRef(null);
+  const temperatureRef = useRef(25);
+  // One-time "needs heat" hints per reactant combo (e.g. cold methane).
+  const ignitionHintShownRef = useRef(new Set());
+  // First-decomposition banner per formula (avoid spamming equilibrium notices).
+  const equilibriumBannerShownRef = useRef(new Set());
   const showPolarityRef = useRef(false);
+  const lewisViewRef = useRef(false);
   const soundEnabledRef = useRef(true);
   const audioContextRef = useRef(null);
 
@@ -1302,6 +1391,24 @@ function App() {
       });
     }
 
+    if (formula === "NH3") {
+      const nitrogenAtom = takenAtoms.find((atom) => atom.type === "N");
+      const hydrogenAtoms = takenAtoms.filter((atom) => atom.type === "H");
+
+      setAtomPosition(nitrogenAtom.id, centerPosition);
+      hydrogenAtoms.forEach((hydrogenAtom) => {
+        createBond(nitrogenAtom.id, hydrogenAtom.id);
+      });
+      return buildMoleculeRecord({
+        type: "ammonia",
+        displayLabel: "NH3",
+        formula: "NH3",
+        atomIds: [nitrogenAtom.id, ...hydrogenAtoms.map((atom) => atom.id)],
+        center: { ...centerPosition },
+        snapStartedAt: performance.now(),
+      });
+    }
+
     return null;
   };
 
@@ -1380,6 +1487,120 @@ function App() {
         celebrateAllDiscovered();
       }, 3000);
     }
+  };
+
+  const playDecomposeSound = () => {
+    playTone(523.25, { duration: 0.3, peak: 0.028 });
+    playTone(392, { delay: 0.1, duration: 0.35, peak: 0.026 });
+  };
+
+  // Break an unstable molecule back into its products (the reverse arrow of
+  // an equilibrium). Products are pre-marked so they don't instantly offer
+  // to recombine.
+  const decomposeMoleculeIntoProducts = (molecule, rule) => {
+    const centroid = molecule.center ?? { x: 0.5, y: 0.5 };
+    const atomIds = [...molecule.atomIds];
+
+    removeMoleculeRecords([molecule.id]);
+    removeBondsForAtomIds(atomIds);
+
+    const atomPool = getAtomsByIds(atomIds);
+    const productMoleculeIds = rule.products
+      .map((productFormula, productIndex) => {
+        const offset = getReactionProductOffset(rule.products.length, productIndex);
+
+        return buildReactionProduct(productFormula, atomPool, {
+          x: clampValue(centroid.x + offset.x, 0.12, 0.88),
+          y: clampValue(centroid.y + offset.y, 0.12, 0.88),
+        });
+      })
+      .filter((moleculeId) => moleculeId !== null && moleculeId !== undefined);
+
+    // Suppress instant recombination offers between the fresh products —
+    // both the legacy carbonic-acid pairing and any reaction template whose
+    // reactants exactly match these products.
+    const productFormulas = productMoleculeIds.map(
+      (moleculeId) => getMoleculeById(moleculeId)?.formula
+    );
+    const productWaterId = productMoleculeIds.find(
+      (moleculeId) => getMoleculeById(moleculeId)?.formula === "H2O"
+    );
+    const productCO2Id = productMoleculeIds.find(
+      (moleculeId) => getMoleculeById(moleculeId)?.formula === "CO2"
+    );
+
+    if (productWaterId !== undefined && productCO2Id !== undefined) {
+      setPromptedComboStatus(getMoleculeIdComboKey([productWaterId, productCO2Id]), "declined");
+    }
+
+    for (const template of REACTION_TEMPLATES) {
+      if (Object.keys(template.reactantAtoms ?? {}).length > 0) {
+        continue;
+      }
+
+      const neededFormulas = template.reactantMolecules ?? {};
+      const available = [...productFormulas];
+      let satisfiable = true;
+      const usedIds = [];
+
+      for (const [formula, count] of Object.entries(neededFormulas)) {
+        for (let taken = 0; taken < count; taken += 1) {
+          const index = available.indexOf(formula);
+
+          if (index < 0) {
+            satisfiable = false;
+            break;
+          }
+
+          available.splice(index, 1);
+          usedIds.push(productMoleculeIds[productFormulas.indexOf(formula)]);
+        }
+
+        if (!satisfiable) {
+          break;
+        }
+      }
+
+      if (satisfiable && usedIds.length > 0) {
+        const templateProductIds = productMoleculeIds.filter(
+          (moleculeId) => neededFormulas[getMoleculeById(moleculeId)?.formula] !== undefined
+        );
+
+        setPromptedComboStatus(
+          `rx:${template.type}:${getMoleculeIdComboKey(templateProductIds)}:`,
+          "declined"
+        );
+      }
+    }
+
+    spawnReactionBurst(centroid, "endothermic");
+    playDecomposeSound();
+    addNotebookEntry(`Decomposed: ${rule.equation} (endothermic)`);
+
+    if (!equilibriumBannerShownRef.current.has(rule.formula)) {
+      equilibriumBannerShownRef.current.add(rule.formula);
+      showEventBanner(
+        { kind: "discovery", title: "⚖️ Equilibrium!", subtitle: `${rule.equation} — unstable molecules fall apart, faster when heated.` },
+        4200
+      );
+      showEnergyDiagram({
+        equation: rule.equation,
+        energy: "endothermic",
+        deltaH: rule.deltaH,
+      });
+    }
+  };
+
+  const showEnergyDiagram = (diagram, durationMs = 14000) => {
+    if (energyDiagramTimeoutRef.current) {
+      clearTimeout(energyDiagramTimeoutRef.current);
+    }
+
+    setEnergyDiagram(diagram);
+    energyDiagramTimeoutRef.current = window.setTimeout(() => {
+      setEnergyDiagram(null);
+      energyDiagramTimeoutRef.current = null;
+    }, durationMs);
   };
 
   // Session lab notebook: a running record of formations and reactions.
@@ -1506,11 +1727,15 @@ function App() {
     performance.now() - promptClosedAtRef.current < PROMPT_COOLDOWN_MS;
 
   const setPromptedComboStatus = (comboKey, status) => {
-    setPromptedMoleculeCombos((current) => {
-      const nextValue = { ...current, [comboKey]: status };
-      promptedMoleculeCombosRef.current = nextValue;
-      return nextValue;
-    });
+    // The ref must update SYNCHRONOUSLY: detectors run in the same frame as
+    // decompositions/reactions and would otherwise read a stale combo map
+    // (which caused decomposition products to instantly re-offer their
+    // reverse reaction).
+    promptedMoleculeCombosRef.current = {
+      ...promptedMoleculeCombosRef.current,
+      [comboKey]: status,
+    };
+    setPromptedMoleculeCombos(promptedMoleculeCombosRef.current);
   };
 
   const getMoleculeComboKey = (atomIds) =>
@@ -1908,12 +2133,13 @@ function App() {
     const closestCandidate = candidates.reduce((bestCandidate, candidate) =>
       candidate.distancePx < bestCandidate.distancePx ? candidate : bestCandidate
     );
-    const strength = getHydrogenBondStrength(
-      closestCandidate.distancePx,
-      minDistancePx,
-      targetDistancePx,
-      maxDistancePx
-    );
+    const strength =
+      getHydrogenBondStrength(
+        closestCandidate.distancePx,
+        minDistancePx,
+        targetDistancePx,
+        maxDistancePx
+      ) * getHydrogenBondTemperatureFactor();
 
     if (strength <= 0) {
       return null;
@@ -2712,7 +2938,16 @@ function App() {
 
       spawnReactionBurst(reactionCentroid, reaction.energy);
       playReactionSound();
-      addNotebookEntry(`Reaction: ${reaction.equation} (${reaction.energy})`);
+      addNotebookEntry(
+        `Reaction: ${reaction.equation} (${reaction.energy}${
+          reaction.deltaH !== undefined ? `, ΔH ≈ ${reaction.deltaH} kJ/mol` : ""
+        })`
+      );
+      showEnergyDiagram({
+        equation: reaction.equation,
+        energy: reaction.energy,
+        deltaH: reaction.deltaH,
+      });
       showEventBanner(
         { kind: "reaction", title: "Reaction!", subtitle: reaction.equation },
         3400
@@ -2779,7 +3014,12 @@ function App() {
         snapStartedAt: performance.now(),
       });
 
-      addNotebookEntry("Reaction: CO2 + H2O → H2CO3 (exothermic)");
+      addNotebookEntry("Reaction: CO2 + H2O → H2CO3 (exothermic, ΔH ≈ −20 kJ/mol)");
+      showEnergyDiagram({
+        equation: "CO2 + H2O → H2CO3",
+        energy: "exothermic",
+        deltaH: -20,
+      });
       setPromptedComboStatus(prompt.comboKey, "accepted");
       setMoleculePromptState(null);
       return;
@@ -3230,10 +3470,27 @@ function App() {
     setShowLonePairs(nextValue);
   };
 
+  const handleTemperatureChange = (event) => {
+    const nextValue = Number(event.target.value);
+    temperatureRef.current = nextValue;
+    setTemperature(nextValue);
+  };
+
+  // Hydrogen bonds weaken as the lab heats up and are gone near boiling;
+  // slight strengthening when cold.
+  const getHydrogenBondTemperatureFactor = () =>
+    clampValue(1.15 - Math.max(0, temperatureRef.current - 40) / 55, 0, 1.15);
+
   const handleShowPolarityChange = (event) => {
     const nextValue = event.target.checked;
     showPolarityRef.current = nextValue;
     setShowPolarity(nextValue);
+  };
+
+  const handleLewisViewChange = (event) => {
+    const nextValue = event.target.checked;
+    lewisViewRef.current = nextValue;
+    setLewisView(nextValue);
   };
 
   const handleSoundEnabledChange = (event) => {
@@ -3582,6 +3839,10 @@ function App() {
     : [];
   // eslint-disable-next-line react-hooks/refs
   const atomicExpansionCollapseGesture = atomicExpansionCollapseGestureRef.current;
+  // eslint-disable-next-line react-hooks/refs
+  const currentPH = getEstimatedPH(moleculesRef.current);
+  const currentPHLabel = currentPH < 6.5 ? "Acidic" : currentPH > 7.5 ? "Basic" : "Neutral";
+  const currentPHColor = currentPH < 6.5 ? "#fb7185" : currentPH > 7.5 ? "#a78bfa" : "#86efac";
   // Molecule inspector target: any grabbed molecule first, else the hovered one.
   // eslint-disable-next-line react-hooks/refs
   const currentInfoMoleculeId = [...grabbedMoleculeIdsRef.current][0] ?? hoveredMoleculeIdRef.current;
@@ -3622,6 +3883,7 @@ function App() {
     // ticks faster than the camera, and re-detecting the same frame just
     // burns CPU (dropped frames read as choppy tracking).
     let lastDetectedVideoTime = -1;
+    let lastPhysicsTickAt = 0;
     let lastDetectionResults = { landmarks: [] };
 
     const createHandState = (wrist) => {
@@ -4276,7 +4538,8 @@ function App() {
           };
 
           const drawAtomLonePairs = (atom, molecule, drawRadius) => {
-            if (!showLonePairsRef.current || atom.moleculeId === null) {
+            // Lewis view always shows lone pairs — they ARE the structure.
+            if ((!showLonePairsRef.current && !lewisViewRef.current) || atom.moleculeId === null) {
               return;
             }
 
@@ -4313,6 +4576,57 @@ function App() {
             context.restore();
           };
 
+          // Lewis mode: bonds render as shared electron-dot pairs — one
+          // column of 2 dots per bond order (2/4/6 dots for single/double/triple).
+          const drawLewisBondPairs = (startPosition, endPosition, order) => {
+            const startX = startPosition.x * canvas.width;
+            const startY = startPosition.y * canvas.height;
+            const endX = endPosition.x * canvas.width;
+            const endY = endPosition.y * canvas.height;
+            const deltaX = endX - startX;
+            const deltaY = endY - startY;
+            const distance = Math.hypot(deltaX, deltaY);
+
+            if (distance <= atomRadius * 1.2) {
+              return;
+            }
+
+            const unitX = deltaX / distance;
+            const unitY = deltaY / distance;
+            const normalX = -unitY;
+            const normalY = unitX;
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2;
+            const columnSpacing = 9 * getVisualScale();
+            const pairSpacing = 7 * getVisualScale();
+            const dotRadius = 2.6 * getVisualScale();
+
+            context.save();
+            context.fillStyle = "rgba(226, 240, 255, 0.95)";
+            context.shadowColor = "rgba(147, 197, 253, 0.6)";
+            context.shadowBlur = 6;
+
+            for (let column = 0; column < order; column += 1) {
+              const columnOffset = (column - (order - 1) / 2) * columnSpacing;
+              const columnX = midX + unitX * columnOffset;
+              const columnY = midY + unitY * columnOffset;
+
+              for (const side of [-0.5, 0.5]) {
+                context.beginPath();
+                context.arc(
+                  columnX + normalX * pairSpacing * side,
+                  columnY + normalY * pairSpacing * side,
+                  dotRadius,
+                  0,
+                  Math.PI * 2
+                );
+                context.fill();
+              }
+            }
+
+            context.restore();
+          };
+
           const drawBondStick = (
             startPosition,
             endPosition,
@@ -4320,6 +4634,10 @@ function App() {
             perpendicularOffsetPx = 0,
             atomTypePair = null
           ) => {
+            if (lewisViewRef.current && atomTypePair && perpendicularOffsetPx === 0) {
+              drawLewisBondPairs(startPosition, endPosition, 1);
+              return;
+            }
             const startX = startPosition.x * canvas.width;
             const startY = startPosition.y * canvas.height;
             const endX = endPosition.x * canvas.width;
@@ -4405,6 +4723,11 @@ function App() {
             trimScale = 0.88,
             atomTypePair = null
           ) => {
+            if (lewisViewRef.current && atomTypePair) {
+              drawLewisBondPairs(startPosition, endPosition, order);
+              return;
+            }
+
             if (order <= 1) {
               drawBondStick(startPosition, endPosition, trimScale, 0, atomTypePair);
               return;
@@ -6048,6 +6371,30 @@ function App() {
                   continue;
                 }
 
+                // Ignition check: some reactions need heat before they'll go.
+                if (
+                  reaction.minTemperature !== undefined &&
+                  temperatureRef.current < reaction.minTemperature
+                ) {
+                  const hintKey = `${reaction.type}:${getMoleculeIdComboKey(
+                    chosenMolecules.map(({ id }) => id)
+                  )}`;
+
+                  if (!ignitionHintShownRef.current.has(hintKey)) {
+                    ignitionHintShownRef.current.add(hintKey);
+                    showEventBanner(
+                      {
+                        kind: "discovery",
+                        title: "🔥 Needs heat!",
+                        subtitle: `Raise the temperature to at least ${reaction.minTemperature}°C to ignite this reaction.`,
+                      },
+                      3400
+                    );
+                  }
+
+                  continue;
+                }
+
                 const comboKey = `rx:${reaction.type}:${getMoleculeIdComboKey(
                   chosenMolecules.map(({ id }) => id)
                 )}:${[...chosenAtomIds].sort((left, right) => left - right).join("-")}`;
@@ -7680,6 +8027,95 @@ function App() {
             grabbedAtomIdSet.add(pointerDragRef.current.atomId);
           }
 
+          // --- Thermal physics -------------------------------------------
+          const physicsNow = performance.now();
+          const physicsDtSeconds =
+            lastPhysicsTickAt === 0
+              ? 1 / 60
+              : Math.min(0.1, (physicsNow - lastPhysicsTickAt) / 1000);
+          lastPhysicsTickAt = physicsNow;
+
+          // Above ~boiling, explicit hydrogen-bond records break apart.
+          if (getHydrogenBondTemperatureFactor() <= 0.05) {
+            if (bondsRef.current.some((bond) => getBondCategory(bond) === "hydrogenBond")) {
+              bondsRef.current = bondsRef.current.filter(
+                (bond) => getBondCategory(bond) !== "hydrogenBond"
+              );
+            }
+          }
+
+          // Brownian jitter: everything loose trembles more as the lab heats.
+          const thermalTemperature = temperatureRef.current;
+
+          if (thermalTemperature > 0) {
+            const jitterAmplitude =
+              Math.min(1, thermalTemperature / 300) * 0.0028 * physicsDtSeconds * 60;
+
+            for (const molecule of moleculesRef.current) {
+              if (
+                molecule.snapStartedAt ||
+                !molecule.center ||
+                grabbedMoleculeIdsRef.current.has(molecule.id) ||
+                (!isWaterClusterMolecule(molecule) && getClusterForMemberMoleculeId(molecule.id))
+              ) {
+                continue;
+              }
+
+              moveMoleculeTo(molecule, {
+                x: molecule.center.x + (Math.random() - 0.5) * jitterAmplitude * 2,
+                y: molecule.center.y + (Math.random() - 0.5) * jitterAmplitude * 2,
+              });
+            }
+
+            atomsRef.current = atomsRef.current.map((atom) => {
+              if (atom.moleculeId !== null || grabbedAtomIdSet.has(atom.id)) {
+                return atom;
+              }
+
+              return {
+                ...atom,
+                position: clampPosition({
+                  x: atom.position.x + (Math.random() - 0.5) * jitterAmplitude * 2,
+                  y: atom.position.y + (Math.random() - 0.5) * jitterAmplitude * 2,
+                }),
+              };
+            });
+          }
+
+          // Equilibrium: unstable molecules decompose probabilistically,
+          // faster when the lab is hot.
+          for (const rule of DECOMPOSITION_RULES) {
+            if (
+              rule.minTemperature !== undefined &&
+              temperatureRef.current < rule.minTemperature
+            ) {
+              continue;
+            }
+
+            const rateMultiplier = clampValue(
+              1 + (temperatureRef.current - 25) / 40,
+              0.15,
+              12
+            );
+            const decomposeProbability =
+              1 - Math.pow(2, -physicsDtSeconds / (rule.baseHalfLifeS / rateMultiplier));
+
+            for (const molecule of [...moleculesRef.current]) {
+              if (
+                molecule.formula !== rule.formula ||
+                molecule.snapStartedAt ||
+                grabbedMoleculeIdsRef.current.has(molecule.id) ||
+                moleculePromptRef.current?.sourceMoleculeIds?.includes(molecule.id)
+              ) {
+                continue;
+              }
+
+              if (Math.random() < decomposeProbability) {
+                decomposeMoleculeIntoProducts(molecule, rule);
+              }
+            }
+          }
+
           syncPendingMoleculePrompt();
           tryFormWaterMolecules();
           tryFormHydrogenMolecules();
@@ -8137,51 +8573,115 @@ function App() {
                   ? NEGATIVE_CHARGE_RGB
                   : neonRgb;
 
-            // Soft neon aura behind every atom; brighter while grabbed or forming.
-            const auraStrength =
-              isForming ? 0.5 : isGrabbed ? 0.4 : chargeValue !== 0 ? 0.3 : 0.16;
-            const auraRadius = drawRadius * (isGrabbed || isForming ? 1.9 : 1.55);
-            const auraGradient = context.createRadialGradient(
-              atomX,
-              atomY,
-              drawRadius * 0.55,
-              atomX,
-              atomY,
-              auraRadius
-            );
-            auraGradient.addColorStop(0, rgbToCss(auraRgb, auraStrength));
-            auraGradient.addColorStop(1, rgbToCss(auraRgb, 0));
+            if (lewisViewRef.current) {
+              // Lewis mode: flat "paper" atom — dark disk with a colored
+              // outline, oversized symbol, dots carry the bonding info.
+              context.beginPath();
+              context.arc(atomX, atomY, drawRadius, 0, Math.PI * 2);
+              context.fillStyle = "rgba(8, 16, 30, 0.85)";
+              context.fill();
+              context.strokeStyle = rgbToCss(auraRgb, isGrabbed ? 0.9 : 0.55);
+              context.lineWidth = 1.8 * getVisualScale();
+              context.stroke();
+            } else {
+              // Soft neon aura behind every atom; brighter while grabbed or forming.
+              const auraStrength =
+                isForming ? 0.5 : isGrabbed ? 0.4 : chargeValue !== 0 ? 0.3 : 0.16;
+              const auraRadius = drawRadius * (isGrabbed || isForming ? 1.9 : 1.55);
+              const auraGradient = context.createRadialGradient(
+                atomX,
+                atomY,
+                drawRadius * 0.55,
+                atomX,
+                atomY,
+                auraRadius
+              );
+              auraGradient.addColorStop(0, rgbToCss(auraRgb, auraStrength));
+              auraGradient.addColorStop(1, rgbToCss(auraRgb, 0));
 
-            context.beginPath();
-            context.arc(atomX, atomY, auraRadius, 0, Math.PI * 2);
-            context.fillStyle = auraGradient;
-            context.fill();
+              context.beginPath();
+              context.arc(atomX, atomY, auraRadius, 0, Math.PI * 2);
+              context.fillStyle = auraGradient;
+              context.fill();
 
-            const atomGradient = context.createRadialGradient(
-              atomX - drawRadius * 0.42,
-              atomY - drawRadius * 0.42,
-              drawRadius * 0.12,
-              atomX + drawRadius * 0.24,
-              atomY + drawRadius * 0.24,
-              drawRadius * 1.12
-            );
-            atomGradient.addColorStop(0, atomStyle.highlight);
-            atomGradient.addColorStop(0.4, atomStyle.mid);
-            atomGradient.addColorStop(0.72, atomStyle.base);
-            atomGradient.addColorStop(1, atomStyle.edge);
+              const atomGradient = context.createRadialGradient(
+                atomX - drawRadius * 0.42,
+                atomY - drawRadius * 0.42,
+                drawRadius * 0.12,
+                atomX + drawRadius * 0.24,
+                atomY + drawRadius * 0.24,
+                drawRadius * 1.12
+              );
+              atomGradient.addColorStop(0, atomStyle.highlight);
+              atomGradient.addColorStop(0.4, atomStyle.mid);
+              atomGradient.addColorStop(0.72, atomStyle.base);
+              atomGradient.addColorStop(1, atomStyle.edge);
 
-            context.save();
+              context.save();
 
-            if (isGrabbed || isForming) {
-              context.shadowColor = rgbToCss(auraRgb, 0.75);
-              context.shadowBlur = 22 * getVisualScale();
+              if (isGrabbed || isForming) {
+                context.shadowColor = rgbToCss(auraRgb, 0.75);
+                context.shadowBlur = 22 * getVisualScale();
+              }
+
+              context.beginPath();
+              context.arc(atomX, atomY, drawRadius, 0, Math.PI * 2);
+              context.fillStyle = atomGradient;
+              context.fill();
+              context.restore();
+
+              const shadeGradient = context.createRadialGradient(
+                atomX + drawRadius * 0.16,
+                atomY + drawRadius * 0.18,
+                drawRadius * 0.18,
+                atomX + drawRadius * 0.52,
+                atomY + drawRadius * 0.56,
+                drawRadius * 1.02
+              );
+              shadeGradient.addColorStop(0, "rgba(120, 0, 0, 0)");
+              shadeGradient.addColorStop(0.55, "rgba(120, 0, 0, 0.08)");
+              shadeGradient.addColorStop(1, "rgba(40, 0, 0, 0.24)");
+
+              context.beginPath();
+              context.arc(atomX, atomY, drawRadius, 0, Math.PI * 2);
+              context.fillStyle = shadeGradient;
+              context.fill();
+
+              // Colored edge ring + top-left rim light + crisp specular highlight.
+              context.save();
+              context.beginPath();
+              context.arc(atomX, atomY, drawRadius - 0.6, 0, Math.PI * 2);
+              context.strokeStyle = rgbToCss(auraRgb, isGrabbed ? 0.85 : chargeValue !== 0 ? 0.6 : 0.42);
+              context.lineWidth = 1.6 * getVisualScale();
+              context.stroke();
+
+              context.beginPath();
+              context.arc(
+                atomX,
+                atomY,
+                drawRadius * 0.86,
+                Math.PI * 1.05,
+                Math.PI * 1.62
+              );
+              context.strokeStyle = "rgba(255, 255, 255, 0.5)";
+              context.lineWidth = Math.max(1.2, drawRadius * 0.09);
+              context.lineCap = "round";
+              context.stroke();
+
+              context.beginPath();
+              context.arc(
+                atomX - drawRadius * 0.36,
+                atomY - drawRadius * 0.4,
+                Math.max(1.6, drawRadius * 0.13),
+                0,
+                Math.PI * 2
+              );
+              context.fillStyle = "rgba(255, 255, 255, 0.85)";
+              context.shadowColor = "rgba(255, 255, 255, 0.9)";
+              context.shadowBlur = 6;
+              context.fill();
+              context.restore();
             }
-
-            context.beginPath();
-            context.arc(atomX, atomY, drawRadius, 0, Math.PI * 2);
-            context.fillStyle = atomGradient;
-            context.fill();
-            context.restore();
 
             if (isSelected) {
               context.beginPath();
@@ -8191,32 +8691,7 @@ function App() {
               context.stroke();
             }
 
-            const shadeGradient = context.createRadialGradient(
-              atomX + drawRadius * 0.16,
-              atomY + drawRadius * 0.18,
-              drawRadius * 0.18,
-              atomX + drawRadius * 0.52,
-              atomY + drawRadius * 0.56,
-              drawRadius * 1.02
-            );
-            shadeGradient.addColorStop(0, "rgba(120, 0, 0, 0)");
-            shadeGradient.addColorStop(0.55, "rgba(120, 0, 0, 0.08)");
-            shadeGradient.addColorStop(1, "rgba(40, 0, 0, 0.24)");
-
-            context.beginPath();
-            context.arc(atomX, atomY, drawRadius, 0, Math.PI * 2);
-            context.fillStyle = shadeGradient;
-            context.fill();
-
-            // Colored edge ring + top-left rim light + crisp specular highlight.
-            context.save();
-            context.beginPath();
-            context.arc(atomX, atomY, drawRadius - 0.6, 0, Math.PI * 2);
-            context.strokeStyle = rgbToCss(auraRgb, isGrabbed ? 0.85 : chargeValue !== 0 ? 0.6 : 0.42);
-            context.lineWidth = 1.6 * getVisualScale();
-            context.stroke();
-
-            // Charge badge for the ions in NaCl (Na+ / Cl-).
+            // Charge badge for ions (Na+ / Cl- / O2-).
             if (perAtomIonCharge !== 0) {
               context.save();
               context.translate(atomX - drawRadius * 0.95, atomY - drawRadius * 0.95);
@@ -8243,33 +8718,6 @@ function App() {
               context.restore();
             }
 
-            context.beginPath();
-            context.arc(
-              atomX,
-              atomY,
-              drawRadius * 0.86,
-              Math.PI * 1.05,
-              Math.PI * 1.62
-            );
-            context.strokeStyle = "rgba(255, 255, 255, 0.5)";
-            context.lineWidth = Math.max(1.2, drawRadius * 0.09);
-            context.lineCap = "round";
-            context.stroke();
-
-            context.beginPath();
-            context.arc(
-              atomX - drawRadius * 0.36,
-              atomY - drawRadius * 0.4,
-              Math.max(1.6, drawRadius * 0.13),
-              0,
-              Math.PI * 2
-            );
-            context.fillStyle = "rgba(255, 255, 255, 0.85)";
-            context.shadowColor = "rgba(255, 255, 255, 0.9)";
-            context.shadowBlur = 6;
-            context.fill();
-            context.restore();
-
             if (parentMolecule) {
               drawAtomLonePairs(atom, parentMolecule, drawRadius);
             }
@@ -8277,8 +8725,8 @@ function App() {
             context.save();
             context.translate(atomX, atomY);
             context.scale(-1, 1);
-            context.fillStyle = atomStyle.text;
-            context.font = `600 ${drawRadius * 0.72}px system-ui`;
+            context.fillStyle = lewisViewRef.current ? "#e8f2ff" : atomStyle.text;
+            context.font = `600 ${drawRadius * (lewisViewRef.current ? 0.88 : 0.72)}px system-ui`;
             context.textAlign = "center";
             context.textBaseline = "middle";
             context.shadowColor = "rgba(0, 0, 0, 0.18)";
@@ -8590,6 +9038,10 @@ function App() {
 
     if (resetArmTimeoutRef.current) {
       clearTimeout(resetArmTimeoutRef.current);
+    }
+
+    if (energyDiagramTimeoutRef.current) {
+      clearTimeout(energyDiagramTimeoutRef.current);
     }
   }, []);
 
@@ -9251,6 +9703,11 @@ function App() {
                   "Every reaction rebuilds its products from the exact atoms of the reactants — conservation of mass isn't checked, it's enforced by construction. Equations shown (like 2Na + 2H₂O → 2NaOH + H₂) are balanced because the atoms literally rearrange on screen. Exothermic reactions burst in fire colors.",
               },
               {
+                heading: "Temperature, kinetics & equilibrium",
+                body:
+                  "The lab thermostat drives real behavior: thermal (Brownian) motion scales with temperature, hydrogen bonds weaken above ~40°C and break near boiling, and methane won't ignite below 100°C. Unstable species — H₂CO₃, H₂SO₃, and NH₄Cl — decompose with temperature-dependent half-lives, the reverse arrow of an equilibrium. Every reaction shows an energy diagram with its activation barrier and an approximate ΔH, and the pH meter tracks the acids and bases currently in the lab.",
+              },
+              {
                 heading: "How the tracking works",
                 body:
                   "MediaPipe Hand Landmarker detects 21 landmarks per hand (up to 6 hands) on-device — no video ever leaves your browser. Landmarks are smoothed with a One Euro filter (adaptive low-pass: steady when still, responsive when fast), and grabbed molecules ease toward your fingertip for a stable feel.",
@@ -9352,6 +9809,62 @@ function App() {
         >
           {atomSizeScale.toFixed(2)}x
         </div>
+        <div
+          style={{
+            marginTop: "clamp(12px, 1.6vw, 14px)",
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            marginBottom: "6px",
+          }}
+        >
+          <span style={{ fontSize: "clamp(13px, 1.4vw, 13px)", fontWeight: 700 }}>🌡️ Temperature</span>
+          <span
+            style={{
+              fontSize: "clamp(13px, 1.4vw, 13px)",
+              fontWeight: 800,
+              fontVariantNumeric: "tabular-nums",
+              color:
+                temperature <= 5
+                  ? "#7dd3fc"
+                  : temperature < 60
+                    ? "rgba(255, 255, 255, 0.85)"
+                    : temperature < 150
+                      ? "#fdba74"
+                      : "#f87171",
+            }}
+          >
+            {temperature}°C
+          </span>
+        </div>
+        <input
+          type="range"
+          min="-20"
+          max="300"
+          step="5"
+          value={temperature}
+          onChange={handleTemperatureChange}
+          style={{
+            width: "100%",
+            accentColor:
+              temperature <= 5 ? "#7dd3fc" : temperature < 150 ? "#fdba74" : "#f87171",
+            cursor: "pointer",
+          }}
+        />
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginTop: "3px",
+            fontSize: "clamp(9px, 1.1vw, 10px)",
+            opacity: 0.55,
+            letterSpacing: "0.04em",
+          }}
+        >
+          <span>−20° ice</span>
+          <span>100° boil</span>
+          <span>300° burn</span>
+        </div>
         <label
           style={{
             marginTop: "clamp(11px, 1.5vw, 12px)",
@@ -9423,6 +9936,34 @@ function App() {
         >
           <input
             type="checkbox"
+            checked={lewisView}
+            onChange={handleLewisViewChange}
+            style={{
+              width: "14px",
+              height: "14px",
+              margin: 0,
+              accentColor: "#7dd3fc",
+              cursor: "pointer",
+              flex: "0 0 auto",
+            }}
+          />
+          <span>Lewis Structure View</span>
+        </label>
+        <label
+          style={{
+            marginTop: "clamp(9px, 1.2vw, 10px)",
+            display: "flex",
+            alignItems: "center",
+            gap: "clamp(9px, 1.2vw, 10px)",
+            fontSize: "clamp(12px, 1.2vw, 12px)",
+            fontWeight: 600,
+            lineHeight: 1.3,
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <input
+            type="checkbox"
             checked={soundEnabled}
             onChange={handleSoundEnabledChange}
             style={{
@@ -9436,6 +9977,74 @@ function App() {
           />
           <span>Sound Effects</span>
         </label>
+        <div
+          style={{
+            marginTop: "clamp(13px, 1.8vw, 14px)",
+            paddingTop: "clamp(11px, 1.6vw, 12px)",
+            borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              marginBottom: "8px",
+            }}
+          >
+            <span style={{ fontSize: "clamp(13px, 1.4vw, 13px)", fontWeight: 700 }}>🧪 Lab pH</span>
+            <span
+              style={{
+                fontSize: "clamp(13px, 1.4vw, 13px)",
+                fontWeight: 800,
+                color: currentPHColor,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {currentPH.toFixed(1)} · {currentPHLabel}
+            </span>
+          </div>
+          <div
+            style={{
+              position: "relative",
+              height: "10px",
+              borderRadius: "999px",
+              background:
+                "linear-gradient(90deg, #ef4444 0%, #f97316 18%, #facc15 32%, #22c55e 50%, #38bdf8 68%, #6366f1 84%, #8b5cf6 100%)",
+              boxShadow: "inset 0 1px 2px rgba(0, 0, 0, 0.4)",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                top: "-4px",
+                left: `${(currentPH / 14) * 100}%`,
+                transform: "translateX(-50%)",
+                width: "6px",
+                height: "18px",
+                borderRadius: "3px",
+                background: "#f8fafc",
+                border: "1px solid rgba(2, 6, 23, 0.55)",
+                boxShadow: "0 0 8px rgba(248, 250, 252, 0.6)",
+                transition: "left 300ms ease",
+              }}
+            />
+          </div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginTop: "4px",
+              fontSize: "clamp(9px, 1.1vw, 10px)",
+              opacity: 0.55,
+              letterSpacing: "0.04em",
+            }}
+          >
+            <span>0 acid</span>
+            <span>7</span>
+            <span>14 base</span>
+          </div>
+        </div>
         <div
           style={{
             marginTop: "clamp(13px, 1.8vw, 14px)",
@@ -9670,109 +10279,61 @@ function App() {
             </button>
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                gap: "clamp(9px, 1.4vw, 10px)",
+                fontSize: "clamp(11px, 1.2vw, 11px)",
+                opacity: 0.6,
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
               }}
             >
-              <button
-                type="button"
-                onClick={() => spawnAtom("H")}
-                style={{
-                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
-                  borderRadius: "10px",
-                  border: "1px solid rgba(255, 255, 255, 0.14)",
-                  background: "rgba(255, 255, 255, 0.08)",
-                  color: "white",
-                  cursor: "pointer",
-                }}
-              >
-                Hydrogen (H)
-              </button>
-              <button
-                type="button"
-                onClick={() => spawnAtom("O")}
-                style={{
-                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
-                  borderRadius: "10px",
-                  border: "1px solid rgba(255, 255, 255, 0.14)",
-                  background: "rgba(255, 255, 255, 0.08)",
-                  color: "white",
-                  cursor: "pointer",
-                }}
-              >
-                Oxygen (O)
-              </button>
-              <button
-                type="button"
-                onClick={() => spawnAtom("C")}
-                style={{
-                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
-                  borderRadius: "10px",
-                  border: "1px solid rgba(255, 255, 255, 0.14)",
-                  background: "rgba(255, 255, 255, 0.08)",
-                  color: "white",
-                  cursor: "pointer",
-                }}
-              >
-                Carbon (C)
-              </button>
-              <button
-                type="button"
-                onClick={() => spawnAtom("N")}
-                style={{
-                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
-                  borderRadius: "10px",
-                  border: "1px solid rgba(255, 255, 255, 0.14)",
-                  background: "rgba(255, 255, 255, 0.08)",
-                  color: "white",
-                  cursor: "pointer",
-                }}
-              >
-                Nitrogen (N)
-              </button>
-              <button
-                type="button"
-                onClick={() => spawnAtom("Cl")}
-                style={{
-                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
-                  borderRadius: "10px",
-                  border: "1px solid rgba(255, 255, 255, 0.14)",
-                  background: "rgba(255, 255, 255, 0.08)",
-                  color: "white",
-                  cursor: "pointer",
-                }}
-              >
-                Chlorine (Cl)
-              </button>
-              <button
-                type="button"
-                onClick={() => spawnAtom("Na")}
-                style={{
-                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
-                  borderRadius: "10px",
-                  border: "1px solid rgba(255, 255, 255, 0.14)",
-                  background: "rgba(255, 255, 255, 0.08)",
-                  color: "white",
-                  cursor: "pointer",
-                }}
-              >
-                Sodium (Na)
-              </button>
-              <button
-                type="button"
-                onClick={() => spawnAtom("S")}
-                style={{
-                  padding: "clamp(9px, 1.4vw, 10px) clamp(11px, 1.6vw, 12px)",
-                  borderRadius: "10px",
-                  border: "1px solid rgba(255, 255, 255, 0.14)",
-                  background: "rgba(255, 255, 255, 0.08)",
-                  color: "white",
-                  cursor: "pointer",
-                }}
-              >
-                Sulfur (S)
-              </button>
+              Periodic table — tap an element to spawn it
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(18, minmax(0, 1fr))",
+                gap: "2px",
+              }}
+            >
+              {PERIODIC_ELEMENTS.map((element) => {
+                const isSpawnable = Boolean(ATOM_DETAILS[element.symbol]);
+                const neonColor = isSpawnable
+                  ? ATOM_NEON_COLORS[element.symbol] ?? "#7dd3fc"
+                  : null;
+
+                return (
+                  <button
+                    key={element.symbol}
+                    type="button"
+                    disabled={!isSpawnable}
+                    onClick={() => spawnAtom(element.symbol)}
+                    title={`${element.name} (${element.number})${
+                      isSpawnable ? "" : " — coming soon"
+                    }`}
+                    style={{
+                      gridColumn: element.col,
+                      gridRow: element.row,
+                      aspectRatio: "1 / 1",
+                      minWidth: 0,
+                      padding: 0,
+                      borderRadius: "4px",
+                      fontSize: "clamp(8px, 1vw, 10px)",
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      border: isSpawnable
+                        ? `1px solid ${neonColor}`
+                        : "1px solid rgba(255, 255, 255, 0.08)",
+                      background: isSpawnable
+                        ? "rgba(125, 211, 252, 0.08)"
+                        : "rgba(255, 255, 255, 0.02)",
+                      color: isSpawnable ? "#ffffff" : "rgba(255, 255, 255, 0.28)",
+                      cursor: isSpawnable ? "pointer" : "default",
+                      boxShadow: isSpawnable ? `0 0 6px ${neonColor}44` : "none",
+                    }}
+                  >
+                    {element.symbol}
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : null}
@@ -10254,6 +10815,123 @@ function App() {
             >
               {eventBanner.subtitle}
             </div>
+          </div>
+        ) : null}
+        {energyDiagram ? (
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              position: "absolute",
+              left: "10px",
+              bottom: "10px",
+              zIndex: 5,
+              width: "min(300px, calc(100% - 20px))",
+              padding: "10px 12px 8px",
+              borderRadius: "14px",
+              textAlign: "left",
+              background: "linear-gradient(180deg, rgba(15, 23, 42, 0.92) 0%, rgba(2, 6, 23, 0.9) 100%)",
+              border:
+                energyDiagram.energy === "exothermic"
+                  ? "1px solid rgba(251, 146, 60, 0.4)"
+                  : "1px solid rgba(125, 211, 252, 0.4)",
+              boxShadow: "0 10px 30px rgba(2, 6, 23, 0.5)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+              }}
+            >
+              <div style={{ fontSize: "12px", fontWeight: 800 }}>
+                ⚡ {energyDiagram.equation}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (energyDiagramTimeoutRef.current) {
+                    clearTimeout(energyDiagramTimeoutRef.current);
+                    energyDiagramTimeoutRef.current = null;
+                  }
+                  setEnergyDiagram(null);
+                }}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: "rgba(255, 255, 255, 0.6)",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                  padding: "0 2px",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <div
+              style={{
+                fontSize: "10.5px",
+                marginTop: "2px",
+                color:
+                  energyDiagram.energy === "exothermic" ? "#fdba74" : "#7dd3fc",
+                fontWeight: 700,
+              }}
+            >
+              {energyDiagram.energy === "exothermic"
+                ? "Exothermic — releases energy"
+                : "Endothermic — absorbs energy"}
+              {energyDiagram.deltaH !== undefined
+                ? ` · ΔH ≈ ${energyDiagram.deltaH} kJ/mol`
+                : ""}
+            </div>
+            {(() => {
+              const isExo = energyDiagram.energy === "exothermic";
+              const reactantY = isExo ? 52 : 96;
+              const productY = isExo ? 96 : 52;
+              const peakY = 20;
+              const curveColor = isExo ? "#fb923c" : "#7dd3fc";
+
+              return (
+                <svg
+                  viewBox="0 0 260 132"
+                  style={{ width: "100%", display: "block", marginTop: "4px" }}
+                >
+                  <line x1="26" y1="8" x2="26" y2="118" stroke="rgba(148,163,184,0.5)" strokeWidth="1" />
+                  <line x1="26" y1="118" x2="250" y2="118" stroke="rgba(148,163,184,0.5)" strokeWidth="1" />
+                  <text x="14" y="66" fill="rgba(148,163,184,0.8)" fontSize="8" transform="rotate(-90 14 66)" textAnchor="middle">
+                    Energy
+                  </text>
+                  <text x="138" y="129" fill="rgba(148,163,184,0.8)" fontSize="8" textAnchor="middle">
+                    Reaction progress
+                  </text>
+                  <line x1="26" y1={reactantY} x2="196" y2={reactantY} stroke="rgba(148,163,184,0.3)" strokeWidth="0.75" strokeDasharray="3 3" />
+                  <line x1="26" y1={productY} x2="240" y2={productY} stroke="rgba(148,163,184,0.3)" strokeWidth="0.75" strokeDasharray="3 3" />
+                  <path
+                    d={`M30,${reactantY} L62,${reactantY} C92,${reactantY} 100,${peakY} 128,${peakY} C156,${peakY} 164,${productY} 194,${productY} L242,${productY}`}
+                    fill="none"
+                    stroke={curveColor}
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+                  <line x1="128" y1={peakY} x2="128" y2={reactantY} stroke="rgba(226,232,240,0.55)" strokeWidth="1" strokeDasharray="3 3" />
+                  <text x="133" y={(peakY + reactantY) / 2 + 3} fill="rgba(226,232,240,0.9)" fontSize="9" fontWeight="700">
+                    Eₐ
+                  </text>
+                  <line x1="228" y1={reactantY} x2="228" y2={productY} stroke={curveColor} strokeWidth="1.25" />
+                  <text x="233" y={(reactantY + productY) / 2 + 3} fill={curveColor} fontSize="9" fontWeight="700">
+                    ΔH
+                  </text>
+                  <text x="30" y={reactantY - 5} fill="rgba(226,232,240,0.75)" fontSize="8.5">
+                    reactants
+                  </text>
+                  <text x="196" y={productY - 5} fill="rgba(226,232,240,0.75)" fontSize="8.5">
+                    products
+                  </text>
+                </svg>
+              );
+            })()}
           </div>
         ) : null}
         {moleculePrompt ? (
