@@ -120,6 +120,9 @@ const COVALENT_BOND_ORDER = {
   single: 1,
   double: 2,
   triple: 3,
+  // Delocalized bond in a resonance hybrid (e.g. SO2, O3): order 1.5,
+  // drawn as one full bond plus a dashed partial bond.
+  resonance: 1.5,
 };
 
 // Neon accent color per atom type — used for grab ripples, auras, and bond gradients.
@@ -266,8 +269,13 @@ const GENERIC_MOLECULE_TEMPLATES = [
       { type: "O", x: -84, y: 38 },
       { type: "O", x: 84, y: 38 },
     ],
-    bonds: [{ a: 0, b: 1, order: "double" }, { a: 0, b: 2 }],
-    lonePairs: { 0: 1, 1: 2, 2: 3 },
+    // Resonance hybrid: both O-O bonds equivalent (order 1.5), like real
+    // ozone's two identical 128 pm bonds.
+    bonds: [
+      { a: 0, b: 1, order: "resonance" },
+      { a: 0, b: 2, order: "resonance" },
+    ],
+    lonePairs: { 0: 1, 1: 2, 2: 2 },
     prompt: "Would you like to make ozone (O3)?",
   },
   {
@@ -402,8 +410,13 @@ const GENERIC_MOLECULE_TEMPLATES = [
       { type: "O", x: -84, y: 38 },
       { type: "O", x: 84, y: 38 },
     ],
-    bonds: [{ a: 0, b: 1, order: "double" }, { a: 0, b: 2 }],
-    lonePairs: { 0: 1, 1: 2, 2: 3 },
+    // Resonance hybrid: both S-O bonds are equivalent (order 1.5) — real
+    // SO2 has two identical 143 pm bonds, not one double and one single.
+    bonds: [
+      { a: 0, b: 1, order: "resonance" },
+      { a: 0, b: 2, order: "resonance" },
+    ],
+    lonePairs: { 0: 1, 1: 2, 2: 2 },
     prompt: "Would you like to make sulfur dioxide (SO2)?",
   },
   {
@@ -682,14 +695,14 @@ const MOLECULE_INFO = {
   HCl: { name: "Hydrogen chloride", molarMass: "36.46", geometry: "Linear", bondAngle: "180°", polarity: "Polar", fact: "Dissolved in water it becomes hydrochloric acid — your stomach makes it." },
   "OH-": { name: "Hydroxide", molarMass: "17.01", geometry: "Linear", bondAngle: "—", polarity: "−1 anion", fact: "The signature ion of bases." },
   H2O2: { name: "Hydrogen peroxide", molarMass: "34.01", geometry: "Bent at each O", bondAngle: "~95°", polarity: "Polar", fact: "An antiseptic that decomposes into water and oxygen." },
-  O3: { name: "Ozone", molarMass: "48.00", geometry: "Bent", bondAngle: "117°", polarity: "Slightly polar", fact: "The ozone layer absorbs harmful UV radiation." },
+  O3: { name: "Ozone", molarMass: "48.00", geometry: "Bent (resonance hybrid)", bondAngle: "117°", polarity: "Slightly polar", fact: "Both O–O bonds are identical (order 1½) — the double bond is delocalized. The ozone layer absorbs harmful UV radiation." },
   C2H6: { name: "Ethane", molarMass: "30.07", geometry: "Tetrahedral at each C", bondAngle: "109.5°", polarity: "Nonpolar", fact: "Found in natural gas alongside methane." },
   C2H4: { name: "Ethene", molarMass: "28.05", geometry: "Trigonal planar", bondAngle: "120°", polarity: "Nonpolar", fact: "Ripens fruit — and becomes polyethylene plastic." },
   C2H2: { name: "Ethyne (acetylene)", molarMass: "26.04", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "Burns at ~3300°C in welding torches." },
   CH3OH: { name: "Methanol", molarMass: "32.04", geometry: "Tetrahedral at C", bondAngle: "~109°", polarity: "Polar", fact: "The simplest alcohol — toxic to drink, useful as fuel." },
   NaOH: { name: "Sodium hydroxide", molarMass: "40.00", geometry: "Ionic", bondAngle: "—", polarity: "Ionic", fact: "Lye — a strong base used to make soap." },
   Na2O: { name: "Sodium oxide", molarMass: "61.98", geometry: "Ionic", bondAngle: "—", polarity: "Ionic", fact: "A reactive oxide that forms lye when it meets water." },
-  SO2: { name: "Sulfur dioxide", molarMass: "64.07", geometry: "Bent", bondAngle: "119°", polarity: "Polar", fact: "Volcano gas — in clouds it can become acid rain." },
+  SO2: { name: "Sulfur dioxide", molarMass: "64.07", geometry: "Bent (resonance hybrid)", bondAngle: "119°", polarity: "Polar", fact: "Both S–O bonds are identical (order 1½) — resonance spreads the double bond over both. Volcano gas that can become acid rain." },
   H2S: { name: "Hydrogen sulfide", molarMass: "34.08", geometry: "Bent", bondAngle: "92°", polarity: "Slightly polar", fact: "Rotten-egg smell — your nose detects a few parts per billion." },
   NH4Cl: { name: "Ammonium chloride", molarMass: "53.49", geometry: "Ionic (NH₄⁺ / Cl⁻)", bondAngle: "—", polarity: "Ionic", fact: "Forms as white smoke when ammonia and HCl vapors meet mid-air." },
   H2SO3: { name: "Sulfurous acid", molarMass: "82.08", geometry: "Pyramidal at S", bondAngle: "—", polarity: "Polar", fact: "The acid in acid rain — SO2 dissolved in water." },
@@ -4605,13 +4618,22 @@ function App() {
 
             context.save();
             context.fillStyle = "rgba(226, 240, 255, 0.95)";
+            context.strokeStyle = "rgba(226, 240, 255, 0.9)";
+            context.lineWidth = 1.2 * getVisualScale();
             context.shadowColor = "rgba(147, 197, 253, 0.6)";
             context.shadowBlur = 6;
 
-            for (let column = 0; column < order; column += 1) {
-              const columnOffset = (column - (order - 1) / 2) * columnSpacing;
+            // Fractional order (resonance, e.g. 1.5): whole columns are filled
+            // pairs; the delocalized partial pair renders as hollow dots.
+            const wholeColumns = Math.floor(order);
+            const hasPartialColumn = order - wholeColumns > 0.01;
+            const totalColumns = wholeColumns + (hasPartialColumn ? 1 : 0);
+
+            for (let column = 0; column < totalColumns; column += 1) {
+              const columnOffset = (column - (totalColumns - 1) / 2) * columnSpacing;
               const columnX = midX + unitX * columnOffset;
               const columnY = midY + unitY * columnOffset;
+              const isPartialColumn = hasPartialColumn && column === totalColumns - 1;
 
               for (const side of [-0.5, 0.5]) {
                 context.beginPath();
@@ -4622,7 +4644,12 @@ function App() {
                   0,
                   Math.PI * 2
                 );
-                context.fill();
+
+                if (isPartialColumn) {
+                  context.stroke();
+                } else {
+                  context.fill();
+                }
               }
             }
 
@@ -4732,6 +4759,29 @@ function App() {
 
             if (order <= 1) {
               drawBondStick(startPosition, endPosition, trimScale, 0, atomTypePair);
+              return;
+            }
+
+            // Resonance hybrid bond (order 1.5): one full stick plus a dashed
+            // delocalized partial stick, so both bonds of SO2/O3 look identical.
+            if (order < 2) {
+              drawBondStick(
+                startPosition,
+                endPosition,
+                trimScale,
+                -3.4 * getVisualScale(),
+                atomTypePair
+              );
+              context.save();
+              context.setLineDash([7 * getVisualScale(), 6 * getVisualScale()]);
+              drawBondStick(
+                startPosition,
+                endPosition,
+                trimScale,
+                3.4 * getVisualScale(),
+                atomTypePair
+              );
+              context.restore();
               return;
             }
 
@@ -9687,7 +9737,7 @@ function App() {
               {
                 heading: "Molecular geometry (VSEPR)",
                 body:
-                  "Molecules snap into shapes based on VSEPR theory: water is bent at 104.5°, ammonia is trigonal pyramidal (107°), methane tetrahedral (109.5°), CO₂ linear, H₂S bent at 92°. Lone pairs are drawn from each species' Lewis structure — including chloride's full octet in ionic compounds.",
+                  "Molecules snap into shapes based on VSEPR theory: water is bent at 104.5°, ammonia is trigonal pyramidal (107°), methane tetrahedral (109.5°), CO₂ linear, H₂S bent at 92°. Lone pairs are drawn from each species' Lewis structure — including chloride's full octet in ionic compounds. SO₂ and O₃ are drawn as resonance hybrids: instead of one double and one single bond, both bonds render identically as order 1½ (a solid stick plus a dashed delocalized stick) — matching the real molecules, whose two bonds are exactly the same length.",
               },
               {
                 heading: "Bond polarity",
