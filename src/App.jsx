@@ -996,6 +996,11 @@ function App() {
   // The branded landing gate: the camera doesn't start (and no permission
   // popup appears) until the user taps "Enter the Lab".
   const [labEntered, setLabEntered] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [notebookOpen, setNotebookOpen] = useState(false);
+  const [notebookEntries, setNotebookEntries] = useState([]);
+  const [presentationMode, setPresentationMode] = useState(false);
+  const [resetArmed, setResetArmed] = useState(false);
   const deleteModeRef = useRef(false);
   const bondingModeRef = useRef(false);
   const atomSizeScaleRef = useRef(1);
@@ -1033,6 +1038,8 @@ function App() {
   const tutorialActiveRef = useRef(false);
   const promptClosedAtRef = useRef(0);
   const deviceScaleRef = useRef(1);
+  const notebookNextIdRef = useRef(1);
+  const resetArmTimeoutRef = useRef(null);
   const showPolarityRef = useRef(false);
   const soundEnabledRef = useRef(true);
   const audioContextRef = useRef(null);
@@ -1373,6 +1380,65 @@ function App() {
         celebrateAllDiscovered();
       }, 3000);
     }
+  };
+
+  // Session lab notebook: a running record of formations and reactions.
+  const addNotebookEntry = (text) => {
+    const entry = {
+      id: notebookNextIdRef.current,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      text,
+    };
+
+    notebookNextIdRef.current += 1;
+    setNotebookEntries((current) => [entry, ...current].slice(0, 60));
+  };
+
+  const resetLab = () => {
+    exitAtomicExpansionMode();
+    setMoleculePromptState(null);
+    atomsRef.current = [
+      createAtom(0, "H", { x: 0.32, y: 0.42 }),
+      createAtom(1, "O", { x: 0.5, y: 0.5 }),
+      createAtom(2, "C", { x: 0.68, y: 0.42 }),
+    ];
+    moleculesRef.current = [];
+    bondsRef.current = [];
+    nextAtomIdRef.current = 3;
+    nextMoleculeIdRef.current = 1;
+    spawnCountRef.current = 0;
+    tempBondStateRef.current = { mouse: null };
+    grabbedMoleculeIdsRef.current = new Set();
+    hoveredMoleculeIdRef.current = null;
+    pointerDragRef.current = null;
+    effectsRef.current = [];
+    genericComponentAgesRef.current = new Map();
+    promptedMoleculeCombosRef.current = {};
+    setPromptedMoleculeCombos({});
+    setSelectedAtom(null);
+    deleteModeRef.current = false;
+    setDeleteMode(false);
+    setBondingModeState(false);
+    addNotebookEntry("Lab reset — fresh bench");
+  };
+
+  const handleResetLabClick = () => {
+    if (resetArmTimeoutRef.current) {
+      clearTimeout(resetArmTimeoutRef.current);
+      resetArmTimeoutRef.current = null;
+    }
+
+    if (!resetArmed) {
+      setResetArmed(true);
+      resetArmTimeoutRef.current = window.setTimeout(() => {
+        setResetArmed(false);
+        resetArmTimeoutRef.current = null;
+      }, 3000);
+      return;
+    }
+
+    setResetArmed(false);
+    resetLab();
   };
 
   const markTutorialSeen = () => {
@@ -2085,6 +2151,9 @@ function App() {
     spawnFormationEffect(resolvedCenter, getMixedNeonRgb(promptAtoms.map((atom) => atom.type)));
     playFormationSound();
     registerMoleculeDiscovery(formula);
+    addNotebookEntry(
+      `Formed ${displayLabel}${MOLECULE_INFO[formula] ? ` — ${MOLECULE_INFO[formula].name}` : ""}`
+    );
 
     return moleculeId;
   };
@@ -2161,6 +2230,7 @@ function App() {
     spawnFormationEffect(center, getMixedNeonRgb(clusterAtoms.map((atom) => atom.type)));
     playFormationSound();
     registerMoleculeDiscovery("2H2O");
+    addNotebookEntry("Formed 2H2O — Water dimer (hydrogen bonded)");
     return clusterId;
   };
 
@@ -2642,6 +2712,7 @@ function App() {
 
       spawnReactionBurst(reactionCentroid, reaction.energy);
       playReactionSound();
+      addNotebookEntry(`Reaction: ${reaction.equation} (${reaction.energy})`);
       showEventBanner(
         { kind: "reaction", title: "Reaction!", subtitle: reaction.equation },
         3400
@@ -2708,6 +2779,7 @@ function App() {
         snapStartedAt: performance.now(),
       });
 
+      addNotebookEntry("Reaction: CO2 + H2O → H2CO3 (exothermic)");
       setPromptedComboStatus(prompt.comboKey, "accepted");
       setMoleculePromptState(null);
       return;
@@ -8482,6 +8554,11 @@ function App() {
         return;
       }
 
+      if (event.key === "p" || event.key === "P") {
+        setPresentationMode((current) => !current);
+        return;
+      }
+
       if (event.key === "w" || event.key === "W") {
         const targetMoleculeId = getWaterToggleTargetMoleculeId();
 
@@ -8509,6 +8586,10 @@ function App() {
 
     if (eventBannerTimeoutRef.current) {
       clearTimeout(eventBannerTimeoutRef.current);
+    }
+
+    if (resetArmTimeoutRef.current) {
+      clearTimeout(resetArmTimeoutRef.current);
     }
   }, []);
 
@@ -8689,6 +8770,7 @@ function App() {
 
   return (
     <div
+      className={presentationMode ? "presentation-mode" : undefined}
       style={{
         textAlign: "center",
         color: "white",
@@ -8909,6 +8991,45 @@ function App() {
           color: rgba(184, 212, 240, 0.6);
         }
 
+        /* Presentation mode: full-bleed lab, HUD hidden — for demos/judging. */
+        .presentation-mode .size-slider-panel,
+        .presentation-mode .control-panel,
+        .presentation-mode .brand-note,
+        .presentation-mode .camera-title,
+        .presentation-mode .camera-tagline {
+          display: none !important;
+        }
+
+        .presentation-mode .camera-layout {
+          grid-template-columns: 1fr;
+          grid-template-areas: "camera";
+        }
+
+        .presentation-mode .camera-viewport {
+          width: min(100%, 1120px);
+        }
+
+        .presentation-exit-button {
+          position: fixed;
+          right: 16px;
+          bottom: 16px;
+          z-index: 60;
+          padding: 8px 16px;
+          border-radius: 999px;
+          border: 1px solid rgba(125, 211, 252, 0.3);
+          background: rgba(8, 20, 40, 0.75);
+          color: rgba(186, 230, 253, 0.85);
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          opacity: 0.55;
+          transition: opacity 160ms ease;
+        }
+
+        .presentation-exit-button:hover {
+          opacity: 1;
+        }
+
         .panel-card {
           width: 100%;
           box-sizing: border-box;
@@ -9042,9 +9163,133 @@ function App() {
           </div>
         </div>
       ) : null}
+      {presentationMode ? (
+        <button
+          type="button"
+          className="presentation-exit-button"
+          onClick={() => setPresentationMode(false)}
+        >
+          Exit Presentation (P)
+        </button>
+      ) : null}
+      {aboutOpen ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 95,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+            background: "rgba(2, 6, 23, 0.7)",
+            backdropFilter: "blur(6px)",
+          }}
+          onClick={() => setAboutOpen(false)}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(640px, 100%)",
+              maxHeight: "min(80vh, 640px)",
+              overflowY: "auto",
+              padding: "clamp(18px, 3vw, 26px)",
+              borderRadius: "18px",
+              textAlign: "left",
+              background: "linear-gradient(180deg, rgba(15, 23, 42, 0.97) 0%, rgba(2, 6, 23, 0.96) 100%)",
+              border: "1px solid rgba(125, 211, 252, 0.28)",
+              boxShadow: "0 24px 60px rgba(2, 6, 23, 0.6), 0 0 60px rgba(56, 189, 248, 0.1)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "12px",
+              }}
+            >
+              <div style={{ fontSize: "clamp(16px, 2.4vw, 20px)", fontWeight: 800 }}>
+                🔬 About the Science
+              </div>
+              <button
+                type="button"
+                onClick={() => setAboutOpen(false)}
+                style={{
+                  border: "1px solid rgba(255, 255, 255, 0.18)",
+                  background: "rgba(255, 255, 255, 0.06)",
+                  color: "white",
+                  borderRadius: "999px",
+                  width: "30px",
+                  height: "30px",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            {[
+              {
+                heading: "Molecular geometry (VSEPR)",
+                body:
+                  "Molecules snap into shapes based on VSEPR theory: water is bent at 104.5°, ammonia is trigonal pyramidal (107°), methane tetrahedral (109.5°), CO₂ linear, H₂S bent at 92°. Lone pairs are drawn from each species' Lewis structure — including chloride's full octet in ionic compounds.",
+              },
+              {
+                heading: "Bond polarity",
+                body:
+                  "The polarity overlay computes each bond's electronegativity difference on the Pauling scale (H 2.20, C 2.55, N 3.04, O 3.44, S 2.58, Cl 3.16, Na 0.93). Differences from 0.4–1.8 are drawn as polar covalent with a dipole arrow toward the more electronegative atom; larger differences transfer the electron outright — shown as dashed ionic attractions with charge badges (Na⁺, Cl⁻, O²⁻).",
+              },
+              {
+                heading: "Bonding rules",
+                body:
+                  "Atoms enforce their real valences: H forms 1 bond, O 2, N 3, C 4, S 2 — with the extra dative-bond slot that creates the hydronium (H₃O⁺) and ammonium (NH₄⁺) cations. Metals never bond covalently: sodium only pairs ionically.",
+              },
+              {
+                heading: "Reactions conserve mass",
+                body:
+                  "Every reaction rebuilds its products from the exact atoms of the reactants — conservation of mass isn't checked, it's enforced by construction. Equations shown (like 2Na + 2H₂O → 2NaOH + H₂) are balanced because the atoms literally rearrange on screen. Exothermic reactions burst in fire colors.",
+              },
+              {
+                heading: "How the tracking works",
+                body:
+                  "MediaPipe Hand Landmarker detects 21 landmarks per hand (up to 6 hands) on-device — no video ever leaves your browser. Landmarks are smoothed with a One Euro filter (adaptive low-pass: steady when still, responsive when fast), and grabbed molecules ease toward your fingertip for a stable feel.",
+              },
+              {
+                heading: "Sources",
+                body:
+                  "Electronegativities: Pauling scale. Bond angles and molar masses: standard reference values (CRC Handbook of Chemistry and Physics). Molecule and reaction definitions are data-driven, so every species can be checked against its template.",
+              },
+            ].map((section) => (
+              <div key={section.heading} style={{ marginBottom: "14px" }}>
+                <div
+                  style={{
+                    fontSize: "clamp(13px, 1.8vw, 14px)",
+                    fontWeight: 700,
+                    color: "#7dd3fc",
+                    marginBottom: "4px",
+                  }}
+                >
+                  {section.heading}
+                </div>
+                <div
+                  style={{
+                    fontSize: "clamp(12px, 1.6vw, 13px)",
+                    lineHeight: 1.6,
+                    color: "rgba(226, 232, 240, 0.88)",
+                  }}
+                >
+                  {section.body}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="app-shell">
       <div
         aria-hidden="true"
+        className="brand-note"
         style={{
           pointerEvents: "none",
           zIndex: 1,
@@ -9262,6 +9507,70 @@ function App() {
               </button>
             </div>
           )}
+        </div>
+        <div
+          style={{
+            marginTop: "clamp(12px, 1.8vw, 14px)",
+            paddingTop: "clamp(10px, 1.6vw, 12px)",
+            borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setAboutOpen(true)}
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              borderRadius: "10px",
+              border: "1px solid rgba(255, 255, 255, 0.16)",
+              background: "rgba(255, 255, 255, 0.06)",
+              color: "rgba(255, 255, 255, 0.9)",
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: "clamp(12px, 1.3vw, 12px)",
+            }}
+          >
+            🔬 About the Science
+          </button>
+          <button
+            type="button"
+            onClick={() => setPresentationMode(true)}
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              borderRadius: "10px",
+              border: "1px solid rgba(255, 255, 255, 0.16)",
+              background: "rgba(255, 255, 255, 0.06)",
+              color: "rgba(255, 255, 255, 0.9)",
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: "clamp(12px, 1.3vw, 12px)",
+            }}
+          >
+            🎤 Presentation Mode (P)
+          </button>
+          <button
+            type="button"
+            onClick={handleResetLabClick}
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              borderRadius: "10px",
+              border: resetArmed
+                ? "1px solid rgba(248, 113, 113, 0.75)"
+                : "1px solid rgba(255, 255, 255, 0.16)",
+              background: resetArmed ? "rgba(127, 29, 29, 0.55)" : "rgba(255, 255, 255, 0.06)",
+              color: resetArmed ? "#fecaca" : "rgba(255, 255, 255, 0.9)",
+              cursor: "pointer",
+              fontWeight: resetArmed ? 700 : 600,
+              fontSize: "clamp(12px, 1.3vw, 12px)",
+            }}
+          >
+            {resetArmed ? "Tap again to confirm reset" : "🧹 Reset Lab"}
+          </button>
         </div>
       </div>
       <div
@@ -9647,6 +9956,100 @@ function App() {
                   );
                 })}
               </div>
+            ) : null}
+          </div>
+          <div
+            style={{
+              padding: "clamp(10px, 1.6vw, 12px) clamp(12px, 1.8vw, 14px)",
+              borderRadius: "12px",
+              background: "rgba(255, 255, 255, 0.05)",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setNotebookOpen((current) => !current)}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+                padding: 0,
+                border: "none",
+                background: "transparent",
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "clamp(12px, 1.4vw, 12px)",
+                  opacity: 0.85,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  fontWeight: 700,
+                }}
+              >
+                📓 Lab Notebook ({notebookEntries.length})
+              </span>
+              <span style={{ fontSize: "12px", opacity: 0.7 }}>{notebookOpen ? "▲" : "▼"}</span>
+            </button>
+            {notebookOpen ? (
+              notebookEntries.length > 0 ? (
+                <div
+                  style={{
+                    marginTop: "10px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "5px",
+                    maxHeight: "220px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {notebookEntries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      style={{
+                        display: "flex",
+                        gap: "8px",
+                        alignItems: "baseline",
+                        padding: "5px 8px",
+                        borderRadius: "8px",
+                        fontSize: "clamp(11px, 1.3vw, 12px)",
+                        background: "rgba(255, 255, 255, 0.03)",
+                        border: "1px solid rgba(255, 255, 255, 0.05)",
+                        textAlign: "left",
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: "#7dd3fc",
+                          fontVariantNumeric: "tabular-nums",
+                          flex: "0 0 auto",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {entry.time}
+                      </span>
+                      <span style={{ color: "rgba(255, 255, 255, 0.88)" }}>{entry.text}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    marginTop: "10px",
+                    fontSize: "clamp(11px, 1.4vw, 12px)",
+                    opacity: 0.6,
+                    lineHeight: 1.5,
+                    textAlign: "left",
+                  }}
+                >
+                  Your experiments will be recorded here — every molecule formed and reaction
+                  performed this session.
+                </div>
+              )
             ) : null}
           </div>
           {selectedAtomDetails ? (
