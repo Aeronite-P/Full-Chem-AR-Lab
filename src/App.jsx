@@ -1097,7 +1097,6 @@ function App() {
   // "done". The camera starts once the transition finishes, so model
   // loading can't stutter the animation.
   const [landingPhase, setLandingPhase] = useState("shown");
-  const landingExitTimeoutRef = useRef(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [notebookOpen, setNotebookOpen] = useState(false);
   const [notebookEntries, setNotebookEntries] = useState([]);
@@ -1656,21 +1655,25 @@ function App() {
     }
 
     setLandingPhase("exiting");
-    landingExitTimeoutRef.current = window.setTimeout(() => {
-      landingExitTimeoutRef.current = null;
+  };
+
+  // The exit timer lives in an effect keyed on the phase, so a re-run
+  // (React StrictMode's dev double-invoke, hot reload) re-arms it instead of
+  // leaving the landing overlay stuck mid-exit.
+  useEffect(() => {
+    if (landingPhase !== "exiting") {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
       setLandingPhase("done");
       setLabEntered(true);
     }, LANDING_EXIT_MS);
-  };
 
-  useEffect(
-    () => () => {
-      if (landingExitTimeoutRef.current) {
-        window.clearTimeout(landingExitTimeoutRef.current);
-      }
-    },
-    []
-  );
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [landingPhase]);
 
   const resetLab = () => {
     exitAtomicExpansionMode();
