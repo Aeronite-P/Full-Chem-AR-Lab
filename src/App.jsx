@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
+import Landing, { LANDING_EXIT_MS } from "./Landing.jsx";
+import "./lab.css";
 
 const ATOM_DETAILS = {
   H: {
@@ -1088,6 +1090,11 @@ function App() {
   // The branded landing gate: the camera doesn't start (and no permission
   // popup appears) until the user taps "Enter the Lab".
   const [labEntered, setLabEntered] = useState(false);
+  // "shown" → "exiting" (burst + warp while the lab reveals underneath) →
+  // "done". The camera starts once the transition finishes, so model
+  // loading can't stutter the animation.
+  const [landingPhase, setLandingPhase] = useState("shown");
+  const landingExitTimeoutRef = useRef(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [notebookOpen, setNotebookOpen] = useState(false);
   const [notebookEntries, setNotebookEntries] = useState([]);
@@ -1629,6 +1636,28 @@ function App() {
     notebookNextIdRef.current += 1;
     setNotebookEntries((current) => [entry, ...current].slice(0, 60));
   };
+
+  const enterLab = () => {
+    if (landingPhase !== "shown") {
+      return;
+    }
+
+    setLandingPhase("exiting");
+    landingExitTimeoutRef.current = window.setTimeout(() => {
+      landingExitTimeoutRef.current = null;
+      setLandingPhase("done");
+      setLabEntered(true);
+    }, LANDING_EXIT_MS);
+  };
+
+  useEffect(
+    () => () => {
+      if (landingExitTimeoutRef.current) {
+        window.clearTimeout(landingExitTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   const resetLab = () => {
     exitAtomicExpansionMode();
@@ -9304,7 +9333,13 @@ function App() {
 
   return (
     <div
-      className={presentationMode ? "presentation-mode" : undefined}
+      className={[
+        "lab-stage",
+        landingPhase === "shown" ? "lab-pre" : "lab-reveal",
+        presentationMode ? "presentation-mode" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       style={{
         textAlign: "center",
         color: "white",
@@ -9434,95 +9469,6 @@ function App() {
           font-size: clamp(12px, 1.5vw, 14px);
           letter-spacing: 0.06em;
           color: rgba(184, 212, 240, 0.75);
-        }
-
-        @keyframes emblemSpin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        @keyframes landingRise {
-          from { opacity: 0; transform: translateY(14px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        .landing-overlay {
-          position: fixed;
-          inset: 0;
-          z-index: 100;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 24px;
-          background:
-            radial-gradient(1000px 620px at 50% 12%, rgba(29, 78, 216, 0.28) 0%, rgba(5, 11, 24, 0) 60%),
-            radial-gradient(760px 500px at 12% 88%, rgba(124, 58, 237, 0.14) 0%, rgba(5, 11, 24, 0) 60%),
-            #050b18;
-        }
-
-        .landing-content {
-          text-align: center;
-          max-width: 620px;
-          animation: landingRise 700ms ease both;
-        }
-
-        .landing-emblem-orbits {
-          animation: emblemSpin 26s linear infinite;
-          transform-origin: 60px 60px;
-        }
-
-        .landing-title {
-          margin: 18px 0 0;
-          font-size: clamp(2rem, 6vw, 3.2rem);
-          line-height: 1.05;
-          background: linear-gradient(92deg, #e0f2fe 0%, #7dd3fc 48%, #c4b5fd 100%);
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
-          text-shadow: 0 0 34px rgba(125, 211, 252, 0.18);
-        }
-
-        .landing-tagline {
-          margin-top: 10px;
-          font-size: clamp(15px, 2.2vw, 18px);
-          color: rgba(200, 224, 246, 0.88);
-        }
-
-        .landing-stats {
-          margin-top: 14px;
-          font-size: clamp(12px, 1.6vw, 14px);
-          font-weight: 700;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          color: #67e8f9;
-          opacity: 0.9;
-        }
-
-        .landing-enter-button {
-          margin-top: 26px;
-          padding: 14px 42px;
-          font-size: clamp(15px, 2vw, 17px);
-          font-weight: 800;
-          letter-spacing: 0.04em;
-          color: #06202e;
-          background: linear-gradient(92deg, #7dd3fc 0%, #67e8f9 55%, #a5b4fc 100%);
-          border: none;
-          border-radius: 999px;
-          cursor: pointer;
-          box-shadow: 0 10px 34px rgba(56, 189, 248, 0.35), 0 0 60px rgba(56, 189, 248, 0.18);
-          transition: transform 160ms ease, box-shadow 160ms ease;
-        }
-
-        .landing-enter-button:hover {
-          transform: translateY(-2px) scale(1.02);
-          box-shadow: 0 14px 40px rgba(56, 189, 248, 0.45), 0 0 80px rgba(56, 189, 248, 0.24);
-        }
-
-        .landing-note {
-          margin-top: 18px;
-          font-size: clamp(11px, 1.4vw, 12.5px);
-          line-height: 1.55;
-          color: rgba(184, 212, 240, 0.6);
         }
 
         /* Presentation mode: full-bleed lab, HUD hidden — for demos/judging. */
@@ -9656,46 +9602,11 @@ function App() {
       <div aria-hidden="true" className="bg-aurora bg-aurora-1" />
       <div aria-hidden="true" className="bg-aurora bg-aurora-2" />
       <div aria-hidden="true" className="bg-aurora bg-aurora-3" />
-      {!labEntered ? (
-        <div className="landing-overlay">
-          <div className="landing-content">
-            <svg width="120" height="120" viewBox="0 0 120 120" aria-hidden="true">
-              <defs>
-                <radialGradient id="landingNucleus" cx="35%" cy="30%" r="80%">
-                  <stop offset="0%" stopColor="#9ff0ff" />
-                  <stop offset="55%" stopColor="#38bdf8" />
-                  <stop offset="100%" stopColor="#0369a1" />
-                </radialGradient>
-              </defs>
-              <g className="landing-emblem-orbits">
-                <g stroke="#67e8f9" strokeWidth="3" fill="none" opacity="0.85">
-                  <ellipse cx="60" cy="60" rx="52" ry="21" transform="rotate(-30 60 60)" />
-                  <ellipse cx="60" cy="60" rx="52" ry="21" transform="rotate(30 60 60)" />
-                  <ellipse cx="60" cy="60" rx="52" ry="21" transform="rotate(90 60 60)" />
-                </g>
-                <circle cx="100" cy="34" r="5.5" fill="#ffd166" />
-                <circle cx="19" cy="81" r="5.5" fill="#ff6b81" />
-                <circle cx="87" cy="100" r="5.5" fill="#7cff9b" />
-              </g>
-              <circle cx="60" cy="60" r="15" fill="url(#landingNucleus)" />
-              <circle cx="55" cy="55" r="4" fill="#e0f7ff" opacity="0.9" />
-            </svg>
-            <h1 className="landing-title">Full Chem AR Lab</h1>
-            <div className="landing-tagline">Build real chemistry with your hands.</div>
-            <div className="landing-stats">27 molecules · 6 reactions · hand-tracked AR</div>
-            <button
-              type="button"
-              className="landing-enter-button"
-              onClick={() => setLabEntered(true)}
-            >
-              Enter the Lab 🧪
-            </button>
-            <div className="landing-note">
-              Uses your camera for hand tracking — the feed stays on your device and is never
-              recorded or uploaded. No camera? Everything also works by touch or mouse.
-            </div>
-          </div>
-        </div>
+      <div aria-hidden="true" className="bg-grid" />
+      <div aria-hidden="true" className="bg-dust" />
+      <div aria-hidden="true" className="bg-dust bg-dust-2" />
+      {landingPhase !== "done" ? (
+        <Landing exiting={landingPhase === "exiting"} onEnter={enterLab} />
       ) : null}
       {presentationMode ? (
         <button
@@ -9858,11 +9769,13 @@ function App() {
           width: "min(100%, 240px)",
           padding: "clamp(12px, 1.4vw, 14px) clamp(12px, 1.4vw, 12px)",
           textAlign: "left",
-          background: "rgba(15, 23, 42, 0.58)",
-          border: "1px solid rgba(255, 255, 255, 0.14)",
-          borderRadius: "12px",
-          backdropFilter: "blur(6px)",
-          boxShadow: "0 12px 28px rgba(15, 23, 42, 0.16)",
+          background:
+            "linear-gradient(180deg, rgba(15, 23, 42, 0.78) 0%, rgba(2, 6, 23, 0.7) 100%)",
+          border: "1px solid rgba(125, 211, 252, 0.22)",
+          borderRadius: "18px",
+          backdropFilter: "blur(10px)",
+          boxShadow:
+            "0 18px 40px rgba(2, 6, 23, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 24px rgba(56, 189, 248, 0.08)",
         }}
       >
         <div style={{ fontSize: "clamp(13px, 1.4vw, 13px)", fontWeight: 700, marginBottom: "10px" }}>

@@ -1,0 +1,224 @@
+/* ---------- Lab screen polish ---------- */
+
+/* Faint lab-blueprint grid and twinkling dust behind everything. */
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(125, 211, 252, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 211, 252, 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  background-position: center top;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 38%, #000 0%, rgba(0, 0, 0, 0.5) 45%, transparent 80%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 38%, #000 0%, rgba(0, 0, 0, 0.5) 45%, transparent 80%);
+}
+
+@keyframes labDustTwinkle {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.8; }
+}
+
+.bg-dust {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1.2px 1.2px at 12% 18%, rgba(224, 242, 254, 0.8), transparent),
+    radial-gradient(1px 1px at 78% 12%, rgba(165, 243, 252, 0.7), transparent),
+    radial-gradient(1.4px 1.4px at 64% 72%, rgba(196, 181, 253, 0.7), transparent),
+    radial-gradient(1px 1px at 28% 84%, rgba(224, 242, 254, 0.6), transparent),
+    radial-gradient(1.2px 1.2px at 90% 56%, rgba(165, 243, 252, 0.6), transparent),
+    radial-gradient(1px 1px at 44% 40%, rgba(240, 171, 252, 0.5), transparent);
+  background-size: 420px 420px;
+  animation: labDustTwinkle 7s ease-in-out infinite;
+}
+
+.bg-dust-2 {
+  background-size: 290px 290px;
+  background-position: 120px 60px;
+  animation-duration: 9.5s;
+  animation-delay: -3s;
+}
+
+/* Title: the same flowing color wave as the landing screen. */
+@keyframes labTitleFlow {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+
+.camera-title {
+  background: linear-gradient(92deg, #e0f2fe, #67e8f9, #818cf8, #f0abfc, #67e8f9, #e0f2fe) !important;
+  background-size: 200% 100% !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  text-shadow: none !important;
+  filter: drop-shadow(0 0 18px rgba(103, 232, 249, 0.22));
+  animation: labTitleFlow 9s linear infinite;
+}
+
+/* Camera frame: a slowly rotating neon edge. */
+@property --lab-ring-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes labRingSpin {
+  to { --lab-ring-angle: 360deg; }
+}
+
+.camera-viewport::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  padding: 2px;
+  border-radius: 16px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--lab-ring-angle),
+    rgba(103, 232, 249, 0.95),
+    rgba(129, 140, 248, 0.55) 18%,
+    rgba(240, 171, 252, 0.12) 34%,
+    rgba(103, 232, 249, 0.04) 50%,
+    rgba(129, 140, 248, 0.12) 66%,
+    rgba(240, 171, 252, 0.55) 84%,
+    rgba(103, 232, 249, 0.95)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: labRingSpin 10s linear infinite;
+}
+
+.camera-viewport {
+  box-shadow:
+    0 0 0 1px rgba(125, 211, 252, 0.1),
+    0 18px 60px rgba(2, 132, 199, 0.2),
+    0 0 120px rgba(56, 189, 248, 0.12),
+    0 0 220px rgba(129, 140, 248, 0.08) !important;
+}
+
+/* Panels: shared glass treatment with a lit top edge. */
+.panel-card {
+  transition: border-color 260ms ease, box-shadow 260ms ease;
+}
+
+.panel-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 18px;
+  right: 18px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(125, 211, 252, 0), rgba(125, 211, 252, 0.6), rgba(196, 181, 253, 0.45), rgba(125, 211, 252, 0));
+}
+
+.panel-card:hover {
+  border-color: rgba(125, 211, 252, 0.34) !important;
+}
+
+.panel-card button:not(:disabled) {
+  transition: filter 160ms ease, transform 160ms ease, box-shadow 200ms ease;
+}
+
+.panel-card button:not(:disabled):hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+
+.panel-card button:not(:disabled):active {
+  transform: translateY(0) scale(0.98);
+}
+
+.panel-card input[type="checkbox"] {
+  accent-color: #67e8f9;
+  cursor: pointer;
+}
+
+.panel-card input[type="range"] {
+  cursor: pointer;
+}
+
+/* ---------- Lab reveal (plays as the landing overlay fades out) ---------- */
+
+@keyframes labFadeDown {
+  from { opacity: 0; transform: translateY(-14px); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes labPanelLeft {
+  from { opacity: 0; transform: translateX(-42px) scale(0.97); filter: blur(10px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes labPanelRight {
+  from { opacity: 0; transform: translateX(42px) scale(0.97); filter: blur(10px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes labViewportIn {
+  from { opacity: 0; transform: scale(0.9); filter: blur(14px) brightness(1.6); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes labTitleIn {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: none; }
+}
+
+.lab-stage.lab-pre .brand-note,
+.lab-stage.lab-pre .camera-title,
+.lab-stage.lab-pre .camera-tagline,
+.lab-stage.lab-pre .camera-viewport,
+.lab-stage.lab-pre .size-slider-panel,
+.lab-stage.lab-pre .control-panel {
+  opacity: 0;
+}
+
+.lab-stage.lab-reveal .brand-note {
+  animation: labFadeDown 900ms cubic-bezier(0.16, 1, 0.3, 1) 520ms both;
+}
+
+.lab-stage.lab-reveal .camera-title {
+  animation:
+    labTitleIn 900ms cubic-bezier(0.16, 1, 0.3, 1) 560ms both,
+    labTitleFlow 9s linear infinite;
+}
+
+.lab-stage.lab-reveal .camera-tagline {
+  animation: labFadeDown 900ms cubic-bezier(0.16, 1, 0.3, 1) 660ms both;
+}
+
+.lab-stage.lab-reveal .camera-viewport {
+  animation: labViewportIn 1100ms cubic-bezier(0.16, 1, 0.3, 1) 380ms both;
+}
+
+.lab-stage.lab-reveal .size-slider-panel {
+  animation: labPanelLeft 1000ms cubic-bezier(0.16, 1, 0.3, 1) 620ms both;
+}
+
+.lab-stage.lab-reveal .control-panel {
+  animation: labPanelRight 1000ms cubic-bezier(0.16, 1, 0.3, 1) 720ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-dust,
+  .camera-title,
+  .camera-viewport::before {
+    animation: none !important;
+  }
+
+  .lab-stage.lab-reveal .brand-note,
+  .lab-stage.lab-reveal .camera-title,
+  .lab-stage.lab-reveal .camera-tagline,
+  .lab-stage.lab-reveal .camera-viewport,
+  .lab-stage.lab-reveal .size-slider-panel,
+  .lab-stage.lab-reveal .control-panel {
+    animation: none !important;
+    opacity: 1;
+  }
+}

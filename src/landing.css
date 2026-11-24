@@ -1,0 +1,385 @@
+/* ---------- Landing screen ---------- */
+
+.landing-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  overflow-y: auto;
+  background:
+    radial-gradient(1100px 680px at 50% 8%, rgba(29, 78, 216, 0.32) 0%, rgba(5, 11, 24, 0) 62%),
+    radial-gradient(820px 560px at 8% 92%, rgba(124, 58, 237, 0.2) 0%, rgba(5, 11, 24, 0) 60%),
+    radial-gradient(760px 520px at 94% 80%, rgba(8, 145, 178, 0.16) 0%, rgba(5, 11, 24, 0) 60%),
+    #040917;
+}
+
+.landing-canvas {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.landing-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 46%, rgba(4, 9, 23, 0) 30%, rgba(4, 9, 23, 0.55) 78%, rgba(4, 9, 23, 0.85) 100%);
+}
+
+.landing-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(circle at 50% 62%, rgba(236, 254, 255, 0.55) 0%, rgba(103, 232, 249, 0.22) 22%, rgba(4, 9, 23, 0) 60%);
+}
+
+.landing-content {
+  position: relative;
+  text-align: center;
+  max-width: 680px;
+  margin: auto 0;
+}
+
+/* Emblem */
+
+@keyframes landingEmblemIn {
+  from { opacity: 0; transform: scale(0.55) rotate(-40deg); filter: blur(10px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes landingOrbitSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes landingHaloPulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+.landing-emblem {
+  display: inline-block;
+  animation: landingEmblemIn 1100ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
+}
+
+.landing-emblem svg {
+  display: block;
+  overflow: visible;
+}
+
+.landing-emblem-orbits {
+  transform-origin: 60px 60px;
+  animation: landingOrbitSpin 30s linear infinite;
+}
+
+.landing-nucleus-halo {
+  transform-origin: 60px 60px;
+  animation: landingHaloPulse 3.2s ease-in-out infinite;
+}
+
+/* Title: each letter blurs in, and a color wave flows through the words. */
+
+@keyframes landingLetterIn {
+  from { opacity: 0; transform: translateY(0.45em) scale(0.86); filter: blur(14px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+
+@keyframes landingColorFlow {
+  from { background-position: 0 0; }
+  to { background-position: 12em 0; }
+}
+
+.landing-title {
+  margin: 16px 0 0;
+  font-size: clamp(2.4rem, 8vw, 4.6rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: #e0f2fe;
+  filter: drop-shadow(0 0 22px rgba(103, 232, 249, 0.28)) drop-shadow(0 0 60px rgba(129, 140, 248, 0.18));
+}
+
+.landing-word {
+  display: inline-block;
+  white-space: nowrap;
+  margin: 0 0.13em;
+}
+
+.landing-letter {
+  display: inline-block;
+  background-image: linear-gradient(
+    90deg,
+    #e0f2fe 0em,
+    #67e8f9 2.2em,
+    #818cf8 4.8em,
+    #f0abfc 7.2em,
+    #67e8f9 9.6em,
+    #e0f2fe 12em
+  );
+  background-size: 12em 100%;
+  background-repeat: repeat-x;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* Letter i lags letter 0 by i steps, so the wave travels left to right
+     continuously across the whole title. */
+  animation:
+    landingLetterIn 1000ms cubic-bezier(0.16, 1, 0.3, 1) both,
+    landingColorFlow 7s linear infinite;
+  animation-delay:
+    calc(380ms + var(--i) * 60ms),
+    calc((var(--i) - 20) * 0.36s);
+}
+
+/* Tagline, stats, button, note: staggered rise after the title lands. */
+
+@keyframes landingRiseIn {
+  from { opacity: 0; transform: translateY(12px); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+.landing-tagline {
+  margin: 14px 0 0;
+  font-size: clamp(16px, 2.6vw, 21px);
+  font-weight: 500;
+  color: rgba(214, 232, 250, 0.92);
+}
+
+.landing-tagline-word {
+  display: inline-block;
+  margin: 0 0.16em;
+  animation: landingRiseIn 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(1150ms + var(--i) * 85ms);
+}
+
+.landing-stats {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.landing-stat {
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: clamp(11px, 1.5vw, 12.5px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a5f3fc;
+  background: rgba(14, 116, 144, 0.14);
+  border: 1px solid rgba(103, 232, 249, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: landingRiseIn 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(1700ms + var(--i) * 110ms);
+}
+
+/* Enter button: flowing gradient, shimmer sweep, breathing glow ring. */
+
+@keyframes landingButtonIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.92); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes landingButtonGradient {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+
+@keyframes landingShimmer {
+  0%, 62% { transform: translateX(-120%) skewX(-20deg); }
+  100% { transform: translateX(240%) skewX(-20deg); }
+}
+
+@keyframes landingGlowRing {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.06); }
+}
+
+.landing-enter-button {
+  position: relative;
+  margin-top: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 40px;
+  font-size: clamp(15px, 2vw, 17px);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #04202c;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  background: linear-gradient(92deg, #7dd3fc, #67e8f9, #a5b4fc, #f0abfc, #7dd3fc);
+  background-size: 200% 100%;
+  box-shadow: 0 12px 36px rgba(56, 189, 248, 0.38), 0 0 70px rgba(56, 189, 248, 0.2);
+  animation:
+    landingButtonIn 900ms cubic-bezier(0.16, 1, 0.3, 1) 2050ms both,
+    landingButtonGradient 5s linear infinite;
+  transition: box-shadow 220ms ease, transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landing-enter-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 2px rgba(165, 243, 252, 0.55), 0 0 30px 6px rgba(103, 232, 249, 0.35);
+  animation: landingGlowRing 2.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.landing-enter-button::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.55) 50%, rgba(255, 255, 255, 0) 100%);
+  animation: landingShimmer 3.4s ease-in-out 2.6s infinite;
+  transform: translateX(-120%) skewX(-20deg);
+  pointer-events: none;
+}
+
+.landing-enter-button:hover {
+  transform: translateY(-2px) scale(1.035);
+  box-shadow: 0 16px 44px rgba(56, 189, 248, 0.5), 0 0 96px rgba(129, 140, 248, 0.3);
+}
+
+.landing-enter-button:active {
+  transform: scale(0.97);
+}
+
+.landing-enter-button:focus-visible {
+  outline: 2px solid #e0f2fe;
+  outline-offset: 4px;
+}
+
+.landing-enter-label,
+.landing-enter-arrow {
+  position: relative;
+  z-index: 1;
+}
+
+.landing-enter-arrow {
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landing-enter-button:hover .landing-enter-arrow {
+  transform: translateX(4px);
+}
+
+.landing-note {
+  margin: 22px auto 0;
+  max-width: 460px;
+  font-size: clamp(11px, 1.4vw, 12.5px);
+  line-height: 1.6;
+  color: rgba(184, 212, 240, 0.55);
+  animation: landingRiseIn 900ms ease 2400ms both;
+}
+
+/* ---------- Exit: burst, scatter, warp, fade ---------- */
+
+@keyframes landingLetterOut {
+  from { opacity: 1; transform: none; filter: blur(0); }
+  to {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(1.35);
+    filter: blur(10px);
+  }
+}
+
+@keyframes landingFadeAway {
+  to { opacity: 0; transform: translateY(18px) scale(0.96); filter: blur(10px); }
+}
+
+@keyframes landingEmblemOut {
+  to { opacity: 0; transform: scale(2.4) rotate(70deg); filter: blur(14px); }
+}
+
+@keyframes landingButtonOut {
+  0% { opacity: 1; transform: scale(1); filter: none; }
+  25% { opacity: 1; transform: scale(1.12); filter: brightness(1.6); }
+  100% { opacity: 0; transform: scale(1.7); filter: blur(12px) brightness(2); }
+}
+
+@keyframes landingFlash {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes landingOverlayOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.landing-overlay.is-exiting {
+  pointer-events: none;
+  animation: landingOverlayOut 760ms cubic-bezier(0.55, 0, 0.45, 1) 390ms forwards;
+}
+
+.landing-overlay.is-exiting .landing-flash {
+  animation: landingFlash 700ms ease-out forwards;
+}
+
+.landing-overlay.is-exiting .landing-letter {
+  /* Keep the color wave running (same name + delay = no restart). */
+  animation:
+    landingLetterOut 620ms cubic-bezier(0.33, 0, 0.67, 1) forwards,
+    landingColorFlow 7s linear infinite;
+  animation-delay:
+    calc(var(--i) * 14ms),
+    calc((var(--i) - 20) * 0.36s);
+}
+
+.landing-overlay.is-exiting .landing-emblem {
+  animation: landingEmblemOut 750ms cubic-bezier(0.5, 0, 0.75, 0) forwards;
+}
+
+.landing-overlay.is-exiting .landing-tagline-word,
+.landing-overlay.is-exiting .landing-stat,
+.landing-overlay.is-exiting .landing-note {
+  animation: landingFadeAway 480ms ease-in forwards;
+  animation-delay: 0ms;
+}
+
+.landing-overlay.is-exiting .landing-enter-button {
+  animation: landingButtonOut 620ms cubic-bezier(0.3, 0, 0.6, 1) forwards;
+}
+
+.landing-overlay.is-exiting .landing-enter-button::before,
+.landing-overlay.is-exiting .landing-enter-button::after {
+  animation: none;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-emblem,
+  .landing-emblem-orbits,
+  .landing-nucleus-halo,
+  .landing-letter,
+  .landing-tagline-word,
+  .landing-stat,
+  .landing-enter-button,
+  .landing-enter-button::before,
+  .landing-enter-button::after,
+  .landing-note {
+    animation: none !important;
+  }
+
+  .landing-overlay.is-exiting {
+    animation: landingOverlayOut 400ms ease forwards;
+  }
+
+  .landing-overlay.is-exiting * {
+    animation: none !important;
+  }
+}
