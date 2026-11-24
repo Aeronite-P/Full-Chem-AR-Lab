@@ -1,77 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
 import Landing, { LANDING_EXIT_MS } from "./Landing.jsx";
+import { ELEMENTS, ELEMENTS_BY_SYMBOL, IONIC_PARTNERS } from "./data/elements.js";
 import "./lab.css";
 
-const ATOM_DETAILS = {
-  H: {
-    name: "Hydrogen",
-    symbol: "H",
-    atomicNumber: 1,
-    neutrons: 0,
-    valenceElectrons: 1,
-    commonBonds: 1,
-  },
-  O: {
-    name: "Oxygen",
-    symbol: "O",
-    atomicNumber: 8,
-    neutrons: 8,
-    valenceElectrons: 6,
-    commonBonds: 2,
-  },
-  C: {
-    name: "Carbon",
-    symbol: "C",
-    atomicNumber: 6,
-    neutrons: 6,
-    valenceElectrons: 4,
-    commonBonds: 4,
-  },
-  N: {
-    name: "Nitrogen",
-    symbol: "N",
-    atomicNumber: 7,
-    neutrons: 7,
-    valenceElectrons: 5,
-    commonBonds: 3,
-  },
-  Cl: {
-    name: "Chlorine",
-    symbol: "Cl",
-    atomicNumber: 17,
-    neutrons: 18,
-    valenceElectrons: 7,
-    commonBonds: 1,
-  },
-  Na: {
-    name: "Sodium",
-    symbol: "Na",
-    atomicNumber: 11,
-    neutrons: 12,
-    valenceElectrons: 1,
-    commonBonds: 1,
-  },
-  S: {
-    name: "Sulfur",
-    symbol: "S",
-    atomicNumber: 16,
-    neutrons: 16,
-    valenceElectrons: 6,
-    commonBonds: 2,
-  },
-};
+// Element data (all 118 elements) lives in src/data/elements.js. Each entry
+// keeps the original fields (name, symbol, atomicNumber, neutrons,
+// valenceElectrons, commonBonds) plus weight, configuration, shells, etc.
+const ATOM_DETAILS = ELEMENTS_BY_SYMBOL;
 
 // Pauling electronegativities — used for the polarity (dipole arrow) overlay.
-const ELECTRONEGATIVITY = {
-  H: 2.2,
-  C: 2.55,
-  N: 3.04,
-  O: 3.44,
-  S: 2.58,
-  Cl: 3.16,
-  Na: 0.93,
-};
+const ELECTRONEGATIVITY = Object.fromEntries(
+  ELEMENTS.filter((element) => element.electronegativity !== null).map((element) => [
+    element.symbol,
+    element.electronegativity,
+  ])
+);
 
 // Bonds with ΔEN below this read as nonpolar; above the ionic cutoff the
 // electron transfers outright (drawn as a dashed ionic link instead).
@@ -128,15 +71,16 @@ const COVALENT_BOND_ORDER = {
 };
 
 // Neon accent color per atom type — used for grab ripples, auras, and bond gradients.
-const ATOM_NEON_COLORS = {
-  H: "#e8f6ff",
-  O: "#ff4d4d",
-  C: "#aeb6c2",
-  N: "#4d7dff",
-  Cl: "#3dff8f",
-  Na: "#c95bff",
-  S: "#ffe14d",
-};
+// (The original seven elements keep their exact colors; see elements.js.)
+const ATOM_NEON_COLORS = Object.fromEntries(
+  ELEMENTS.map((element) => [element.symbol, element.neonColor])
+);
+
+const getElementBonding = (atomType) =>
+  ATOM_DETAILS[atomType]?.bonding ?? { kind: "none", reason: "" };
+
+const isIonicMetal = (atomType) => getElementBonding(atomType).kind === "ionic";
+
 
 const hexToRgb = (hex) => {
   const normalized = hex.replace("#", "");
@@ -149,6 +93,38 @@ const hexToRgb = (hex) => {
 
 const rgbToCss = ({ r, g, b }, alpha = 1) =>
   `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${alpha})`;
+
+// Sphere shading for elements added beyond the original seven, derived from
+// each element's neon color the same way the hand-tuned styles are built
+// (bright highlight, saturated mid, deep edge).
+const mixRgb = (rgb, target, amount) => ({
+  r: rgb.r + (target.r - rgb.r) * amount,
+  g: rgb.g + (target.g - rgb.g) * amount,
+  b: rgb.b + (target.b - rgb.b) * amount,
+});
+const rgbToHex = ({ r, g, b }) =>
+  `#${[r, g, b].map((value) => Math.round(value).toString(16).padStart(2, "0")).join("")}`;
+const GENERATED_ATOM_STYLES = Object.fromEntries(
+  ELEMENTS.map((element) => {
+    const neon = hexToRgb(element.neonColor);
+    const black = { r: 0, g: 0, b: 0 };
+    const white = { r: 255, g: 255, b: 255 };
+    const base = mixRgb(neon, black, 0.35);
+    const luminance = (0.299 * base.r + 0.587 * base.g + 0.114 * base.b) / 255;
+
+    return [
+      element.symbol,
+      {
+        base: rgbToHex(base),
+        highlight: rgbToHex(mixRgb(neon, white, 0.55)),
+        mid: rgbToHex(mixRgb(neon, black, 0.12)),
+        edge: rgbToHex(mixRgb(neon, black, 0.68)),
+        text: luminance > 0.6 ? "#1e293b" : "#ffffff",
+        outline: rgbToHex(mixRgb(neon, white, 0.7)),
+      },
+    ];
+  })
+);
 
 const getAtomNeonRgb = (atomType) => hexToRgb(ATOM_NEON_COLORS[atomType] ?? ATOM_NEON_COLORS.C);
 
@@ -735,23 +711,17 @@ const getEstimatedPH = (molecules) => {
   return clampValue(7 + shift, 0, 14);
 };
 
-// Periodic table (periods 1-4) for the spawn drawer. Elements present in
-// ATOM_DETAILS are spawnable; the rest render grayed out as "coming soon".
-const PERIODIC_ELEMENTS = [
-  ["H", 1, 1, 1, "Hydrogen"], ["He", 2, 1, 18, "Helium"],
-  ["Li", 3, 2, 1, "Lithium"], ["Be", 4, 2, 2, "Beryllium"], ["B", 5, 2, 13, "Boron"],
-  ["C", 6, 2, 14, "Carbon"], ["N", 7, 2, 15, "Nitrogen"], ["O", 8, 2, 16, "Oxygen"],
-  ["F", 9, 2, 17, "Fluorine"], ["Ne", 10, 2, 18, "Neon"],
-  ["Na", 11, 3, 1, "Sodium"], ["Mg", 12, 3, 2, "Magnesium"], ["Al", 13, 3, 13, "Aluminium"],
-  ["Si", 14, 3, 14, "Silicon"], ["P", 15, 3, 15, "Phosphorus"], ["S", 16, 3, 16, "Sulfur"],
-  ["Cl", 17, 3, 17, "Chlorine"], ["Ar", 18, 3, 18, "Argon"],
-  ["K", 19, 4, 1, "Potassium"], ["Ca", 20, 4, 2, "Calcium"], ["Sc", 21, 4, 3, "Scandium"],
-  ["Ti", 22, 4, 4, "Titanium"], ["V", 23, 4, 5, "Vanadium"], ["Cr", 24, 4, 6, "Chromium"],
-  ["Mn", 25, 4, 7, "Manganese"], ["Fe", 26, 4, 8, "Iron"], ["Co", 27, 4, 9, "Cobalt"],
-  ["Ni", 28, 4, 10, "Nickel"], ["Cu", 29, 4, 11, "Copper"], ["Zn", 30, 4, 12, "Zinc"],
-  ["Ga", 31, 4, 13, "Gallium"], ["Ge", 32, 4, 14, "Germanium"], ["As", 33, 4, 15, "Arsenic"],
-  ["Se", 34, 4, 16, "Selenium"], ["Br", 35, 4, 17, "Bromine"], ["Kr", 36, 4, 18, "Krypton"],
-].map(([symbol, number, row, col, name]) => ({ symbol, number, row, col, name }));
+// Periodic table (all 118 elements) for the spawn drawer; the f-block sits
+// in two rows below the main table.
+const PERIODIC_ELEMENTS = ELEMENTS.map((element) => ({
+  symbol: element.symbol,
+  number: element.number,
+  row: element.gridRow,
+  col: element.gridColumn,
+  name: element.name,
+  isFBlock: element.group === null,
+}));
+
 
 const DISCOVERED_MOLECULES_STORAGE_KEY = "chemArLabDiscoveredMolecules";
 const TUTORIAL_SEEN_STORAGE_KEY = "chemArLabTutorialSeen";
@@ -1808,37 +1778,15 @@ function App() {
   const getBondKey = (leftAtomId, rightAtomId) =>
     [leftAtomId, rightAtomId].sort((left, right) => left - right).join("-");
 
+  // Bond capacity per element comes from the lab bonding model
+  // (src/data/elements.js): common covalent valence for nonmetals/metalloids
+  // — O keeps a 3rd (dative) slot for H3O+, N a 4th for NH4+, and S starts
+  // with 2 (SO2's resonance bonds are set when it snaps) — the ion charge for
+  // alkali/alkaline-earth metals, and 0 for elements that don't bond here.
   const getAtomBondLimit = (atomType) => {
-    if (atomType === "H") {
-      return 1;
-    }
+    const bonding = getElementBonding(atomType);
 
-    // Oxygen normally makes 2 bonds; the 3rd slot is the dative bond that
-    // forms hydronium (H3O+).
-    if (atomType === "O") {
-      return 3;
-    }
-
-    // Nitrogen normally makes 3 bonds; the 4th slot forms ammonium (NH4+).
-    if (atomType === "N") {
-      return 4;
-    }
-
-    if (atomType === "C") {
-      return 4;
-    }
-
-    if (atomType === "Cl" || atomType === "Na") {
-      return 1;
-    }
-
-    // Sulfur: 2 bonds while building (H2S, SO2 start as singles; SO2's
-    // doubles are set when the molecule snaps together).
-    if (atomType === "S") {
-      return 2;
-    }
-
-    return Number.POSITIVE_INFINITY;
+    return bonding.kind === "none" ? 0 : bonding.maxBonds;
   };
 
   const getLonePairCount = (moleculeFormula, atomType) => {
@@ -1947,8 +1895,8 @@ function App() {
     return atomTypes === "H-O";
   };
 
-  const showBondLimitMessage = () => {
-    setBondLimitMessage("Bond limit reached");
+  const showBondLimitMessage = (message = "Bond limit reached") => {
+    setBondLimitMessage(message);
 
     if (bondLimitMessageTimeoutRef.current) {
       clearTimeout(bondLimitMessageTimeoutRef.current);
@@ -1957,7 +1905,7 @@ function App() {
     bondLimitMessageTimeoutRef.current = window.setTimeout(() => {
       setBondLimitMessage("");
       bondLimitMessageTimeoutRef.current = null;
-    }, 1400);
+    }, Math.max(1400, message.length * 55));
   };
 
   const setSelectedAtom = (atomIndex) => {
@@ -2797,14 +2745,27 @@ function App() {
 
     const isIntermolecularHydrogenBond = isAllowedIntermolecularHydrogenBond(startAtom, endAtom);
 
-    // Sodium is a metal: it doesn't share electrons covalently. Only allow
-    // ionic pairings (Na-Cl, and Na-O for NaOH / Na2O).
+    // Elements whose bonding the lab doesn't model (noble gases, transition
+    // metals, ...) never bond.
+    if (enforceBondLimits && !isIntermolecularHydrogenBond) {
+      const unbondableAtom = [startAtom, endAtom].find(
+        (atom) => getElementBonding(atom.type).kind === "none"
+      );
+
+      if (unbondableAtom) {
+        showBondLimitMessage(getElementBonding(unbondableAtom.type).reason);
+        return false;
+      }
+    }
+
+    // Alkali / alkaline-earth metals (like sodium) don't share electrons
+    // covalently: they only pair ionically with a halide, oxide or sulfide.
     if (
       enforceBondLimits &&
-      ((startAtom.type === "Na" && endAtom.type !== "Cl" && endAtom.type !== "O") ||
-        (endAtom.type === "Na" && startAtom.type !== "Cl" && startAtom.type !== "O"))
+      ((isIonicMetal(startAtom.type) && !IONIC_PARTNERS.has(endAtom.type)) ||
+        (isIonicMetal(endAtom.type) && !IONIC_PARTNERS.has(startAtom.type)))
     ) {
-      showBondLimitMessage();
+      showBondLimitMessage("Metals bond ionically — pair them with F, Cl, Br, I, O or S");
       return false;
     }
 
@@ -4085,6 +4046,7 @@ function App() {
       return nextHandStatesList;
     };
     const atomStyles = {
+      ...GENERATED_ATOM_STYLES,
       H: {
         base: "#ffffff",
         highlight: "#ffffff",
@@ -4149,70 +4111,79 @@ function App() {
           return;
         }
 
-        // Camera / hand tracking is best-effort: if it fails (permission denied,
-        // no camera), the lab still runs in touch/mouse-only mode.
-        try {
+        // Camera / hand tracking attaches in the background once permission is
+        // granted and the model has loaded; until then (or if it fails) the
+        // lab already runs in touch/mouse mode instead of showing a blank
+        // canvas.
+        const initCamera = async () => {
+          // Camera / hand tracking is best-effort: if it fails (permission denied,
+          // no camera), the lab still runs in touch/mouse-only mode.
           try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              // 4:3 matches the viewport box, minimizing the cover-crop (and
-              // the landmark remapping) on phones.
-              video: { facingMode: "user", aspectRatio: { ideal: 4 / 3 } },
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({
+                // 4:3 matches the viewport box, minimizing the cover-crop (and
+                // the landmark remapping) on phones.
+                video: { facingMode: "user", aspectRatio: { ideal: 4 / 3 } },
+              });
+            } catch {
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+              });
+            }
+
+            // The effect may have been torn down while the permission
+            // prompt was open; release the camera instead of leaking it.
+            if (!isMounted) {
+              stream.getTracks().forEach((track) => track.stop());
+              return;
+            }
+
+            video.srcObject = stream;
+            await video.play();
+
+            // Loaded on demand: the hand-tracking library isn't needed until the
+            // lab opens, so the landing screen downloads and starts faster.
+            const { FilesetResolver, HandLandmarker } = await import("@mediapipe/tasks-vision");
+            const vision = await FilesetResolver.forVisionTasks(
+              "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm"
+            );
+
+            // Phones: track fewer hands (2 people max realistically fit a phone
+            // frame) so inference stays fast enough to feel smooth.
+            const isSmallScreen =
+              Math.min(window.screen?.width ?? 1024, window.screen?.height ?? 768) < 700;
+            const buildLandmarkerOptions = (delegate) => ({
+              baseOptions: {
+                modelAssetPath:
+                  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+                delegate,
+              },
+              numHands: isSmallScreen ? 3 : 6,
+              runningMode: "VIDEO",
             });
-          } catch {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: true,
-            });
+
+            try {
+              // GPU inference is dramatically faster, especially on mobile.
+              handLandmarker = await HandLandmarker.createFromOptions(
+                vision,
+                buildLandmarkerOptions("GPU")
+              );
+            } catch {
+              handLandmarker = await HandLandmarker.createFromOptions(
+                vision,
+                buildLandmarkerOptions("CPU")
+              );
+            }
+          } catch (cameraError) {
+            console.error("Camera unavailable, running in touch-only mode:", cameraError);
           }
 
-          // The effect may have been torn down while the permission
-          // prompt was open; release the camera instead of leaking it.
           if (!isMounted) {
-            stream.getTracks().forEach((track) => track.stop());
+            handLandmarker?.close();
+            stream?.getTracks().forEach((track) => track.stop());
             return;
           }
-
-          video.srcObject = stream;
-          await video.play();
-
-          const vision = await FilesetResolver.forVisionTasks(
-            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm"
-          );
-
-          // Phones: track fewer hands (2 people max realistically fit a phone
-          // frame) so inference stays fast enough to feel smooth.
-          const isSmallScreen =
-            Math.min(window.screen?.width ?? 1024, window.screen?.height ?? 768) < 700;
-          const buildLandmarkerOptions = (delegate) => ({
-            baseOptions: {
-              modelAssetPath:
-                "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-              delegate,
-            },
-            numHands: isSmallScreen ? 3 : 6,
-            runningMode: "VIDEO",
-          });
-
-          try {
-            // GPU inference is dramatically faster, especially on mobile.
-            handLandmarker = await HandLandmarker.createFromOptions(
-              vision,
-              buildLandmarkerOptions("GPU")
-            );
-          } catch {
-            handLandmarker = await HandLandmarker.createFromOptions(
-              vision,
-              buildLandmarkerOptions("CPU")
-            );
-          }
-        } catch (cameraError) {
-          console.error("Camera unavailable, running in touch-only mode:", cameraError);
-        }
-
-        if (!isMounted) {
-          handLandmarker?.close();
-          stream?.getTracks().forEach((track) => track.stop());
-          return;
-        }
+        };
 
         const canvas = canvasRef.current;
         const context = canvas?.getContext("2d");
@@ -8339,6 +8310,20 @@ function App() {
               continue;
             }
 
+            // Metal–nonmetal links are ionic attractions, drawn dashed like
+            // the ionic bonds inside snapped compounds (NaCl, NaOH, ...).
+            if (isIonicMetal(leftAtom.type) || isIonicMetal(rightAtom.type)) {
+              context.save();
+              context.setLineDash([5, 7]);
+              context.strokeStyle = "rgba(226, 232, 240, 0.75)";
+              context.lineWidth = 2.4 * getVisualScale();
+              context.shadowColor = "rgba(226, 232, 240, 0.3)";
+              context.shadowBlur = 7;
+              drawBondStick(leftAtom.position, rightAtom.position, 0.95);
+              context.restore();
+              continue;
+            }
+
             drawBondOrderStick(
               leftAtom.position,
               rightAtom.position,
@@ -8942,6 +8927,12 @@ function App() {
                 continue;
               }
 
+              // Ionic-metal links carry no dipole arrow: the electron is
+              // transferred, not unequally shared.
+              if (isIonicMetal(leftAtom.type) || isIonicMetal(rightAtom.type)) {
+                continue;
+              }
+
               const leftEN = ELECTRONEGATIVITY[leftAtom.type] ?? 2.5;
               const rightEN = ELECTRONEGATIVITY[rightAtom.type] ?? 2.5;
               const enDifference = Math.abs(leftEN - rightEN);
@@ -9138,6 +9129,7 @@ function App() {
         };
 
         drawFrame();
+        await initCamera();
       } catch (err) {
         console.error("Camera error:", err);
       }
@@ -10401,6 +10393,7 @@ function App() {
                     style={{
                       gridColumn: element.col,
                       gridRow: element.row,
+                      marginTop: element.isFBlock && element.row === 9 ? "5px" : 0,
                       aspectRatio: "1 / 1",
                       minWidth: 0,
                       padding: 0,
@@ -10724,8 +10717,37 @@ function App() {
               </div>
               <div style={{ fontSize: "clamp(12px, 1.4vw, 12px)", marginTop: "8px", lineHeight: 1.45 }}>
                 <div>Atomic number: {selectedAtomDetails.atomicNumber}</div>
-                <div>Valence electrons: {selectedAtomDetails.valenceElectrons}</div>
-                <div>Common bonds: {selectedAtomDetails.commonBonds}</div>
+                <div>
+                  Standard atomic weight:{" "}
+                  {selectedAtomDetails.standardAtomicWeight ?? "— (no stable isotopes)"}
+                </div>
+                <div>
+                  Isotope shown: {selectedAtomDetails.name.toLowerCase()}-
+                  {selectedAtomDetails.massNumber} ({selectedAtomDetails.neutrons} neutrons,{" "}
+                  {selectedAtomDetails.isotopeBasis === "abundant" ? "most abundant" : "longest-lived"})
+                </div>
+                <div>
+                  Configuration: {selectedAtomDetails.configurationText}
+                  {selectedAtomDetails.configurationPredicted ? " (predicted)" : ""}
+                </div>
+                <div>
+                  Electronegativity:{" "}
+                  {selectedAtomDetails.electronegativity === null
+                    ? "—"
+                    : selectedAtomDetails.electronegativity.toFixed(2)}
+                </div>
+                <div>Valence electrons: {selectedAtomDetails.valenceElectrons ?? "— (varies)"}</div>
+                <div>
+                  {selectedAtomDetails.bonding.kind === "covalent"
+                    ? `Common bonds: ${selectedAtomDetails.commonBonds}`
+                    : selectedAtomDetails.bonding.kind === "ionic"
+                      ? `Bonds ionically (forms ${selectedAtomDetails.symbol}${
+                          selectedAtomDetails.bonding.charge === 1 ? "⁺" : "²⁺"
+                        })`
+                      : selectedAtomDetails.category === "noble-gas"
+                        ? "Common bonds: none (noble gas)"
+                        : "Bonding: not modeled in the lab"}
+                </div>
               </div>
             </div>
           ) : null}
