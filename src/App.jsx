@@ -48,6 +48,12 @@ const WATER_ORB_RADIUS_PX = WATER_ORB_DIAMETER_PX / 2;
 const WATER_HYDROGEN_BOND_RANGE_PX = 120;
 const WATER_HYDROGEN_BOND_TARGET_PX = 96;
 const WATER_HYDROGEN_BOND_MIN_PX = 64;
+// Hydrogen-bond distances are measured against the desktop viewport the
+// thresholds were tuned on (760x570 -> short side 570). Layout offsets and
+// thresholds both scale with getVisualScale(), so a fixed reference keeps
+// detection consistent with the attraction forces on every screen size
+// (the live viewport size broke dimer detection on phones).
+const HYDROGEN_BOND_REFERENCE_SIZE_PX = 570;
 const CARBONIC_ACID_REACTION_RANGE_PX = 126;
 const ATOMIC_EXPANSION_TRIGGER_DELTA_PX = 110;
 const ATOMIC_EXPANSION_ENTRY_DURATION_MS = 560;
@@ -1535,8 +1541,8 @@ function App() {
         const offset = getReactionProductOffset(rule.products.length, productIndex);
 
         return buildReactionProduct(productFormula, atomPool, {
-          x: clampValue(centroid.x + offset.x, 0.12, 0.88),
-          y: clampValue(centroid.y + offset.y, 0.12, 0.88),
+          x: clampValue(centroid.x + offset.x * getVisualScale(), 0.12, 0.88),
+          y: clampValue(centroid.y + offset.y * getVisualScale(), 0.12, 0.88),
         });
       })
       .filter((moleculeId) => moleculeId !== null && moleculeId !== undefined);
@@ -2058,7 +2064,10 @@ function App() {
         waterMolecule.center.y - carbonDioxideMolecule.center.y
       ) * Math.min(canvas.width, canvas.height);
 
-    return distancePx <= CARBONIC_ACID_REACTION_RANGE_PX;
+    // Scales with the visual scale like every other reaction range — on
+    // phones molecules draw up to 1.9x larger and a fixed range meant CO2 and
+    // H2O had to overlap before the reaction was offered.
+    return distancePx <= CARBONIC_ACID_REACTION_RANGE_PX * getVisualScale();
   };
 
   const isWaterClusterMolecule = (molecule) => molecule?.formula === "2H2O";
@@ -2248,13 +2257,7 @@ function App() {
       return null;
     }
 
-    const viewportSizePx = Math.max(
-      320,
-      Math.min(
-        viewportRef.current?.clientWidth ?? 600,
-        viewportRef.current?.clientHeight ?? 600
-      )
-    );
+    const viewportSizePx = HYDROGEN_BOND_REFERENCE_SIZE_PX;
     const scaledHydrogenBondRangePx = WATER_HYDROGEN_BOND_RANGE_PX * getVisualScale();
     const scaledHydrogenBondTargetPx = WATER_HYDROGEN_BOND_TARGET_PX * getVisualScale();
     const scaledHydrogenBondMinPx = WATER_HYDROGEN_BOND_MIN_PX * getVisualScale();
@@ -2503,13 +2506,7 @@ function App() {
     );
     const bonds = [];
     const counts = new Map();
-    const viewportSizePx = Math.max(
-      320,
-      Math.min(
-        viewportRef.current?.clientWidth ?? 600,
-        viewportRef.current?.clientHeight ?? 600
-      )
-    );
+    const viewportSizePx = HYDROGEN_BOND_REFERENCE_SIZE_PX;
 
     const scaledHydrogenBondRangePx = WATER_HYDROGEN_BOND_RANGE_PX * getVisualScale();
     const scaledHydrogenBondTargetPx = WATER_HYDROGEN_BOND_TARGET_PX * getVisualScale();
@@ -2931,10 +2928,13 @@ function App() {
       const productMoleculeIds = reaction.products
         .map((productFormula, productIndex) => {
           const offset = getReactionProductOffset(reaction.products.length, productIndex);
+          // Molecules draw larger on phones (visual scale up to 1.9), so the
+          // product spacing grows with them instead of overlapping.
+          const spacing = getVisualScale();
 
           return buildReactionProduct(productFormula, atomPool, {
-            x: clampValue(reactionCentroid.x + offset.x, 0.12, 0.88),
-            y: clampValue(reactionCentroid.y + offset.y, 0.12, 0.88),
+            x: clampValue(reactionCentroid.x + offset.x * spacing, 0.12, 0.88),
+            y: clampValue(reactionCentroid.y + offset.y * spacing, 0.12, 0.88),
           });
         })
         .filter((moleculeId) => moleculeId !== null && moleculeId !== undefined);
@@ -2964,22 +2964,33 @@ function App() {
             // The "2 H2O" in the equation becomes the water dimer directly —
             // snap them together once the product waters settle, no prompt.
             setPromptedComboStatus(dimerComboKey, "accepted");
-            window.setTimeout(() => {
+            // The waters need a moment to settle into hydrogen-bond range;
+            // retry for ~3 s. If it still can't form (e.g. one was dragged
+            // away), un-mark the pair so the normal dimer offer can appear.
+            let clusterAttempts = 0;
+            const tryAutoCluster = () => {
+              clusterAttempts += 1;
+
+              if (getClusterForMemberMoleculeId(waterPairIds[0])) {
+                return;
+              }
+
               const clusterId = buildWaterClusterRecord({
                 sourceMoleculeIds: waterPairIds,
                 comboKey: dimerComboKey,
               });
 
-              if (clusterId === null) {
-                // Waters may still be settling — one retry.
-                window.setTimeout(() => {
-                  buildWaterClusterRecord({
-                    sourceMoleculeIds: waterPairIds,
-                    comboKey: dimerComboKey,
-                  });
-                }, 1100);
+              if (clusterId !== null) {
+                return;
               }
-            }, 900);
+
+              if (clusterAttempts < 8 && waterPairIds.every((id) => getMoleculeById(id))) {
+                window.setTimeout(tryAutoCluster, 350);
+              } else {
+                setPromptedComboStatus(dimerComboKey, undefined);
+              }
+            };
+            window.setTimeout(tryAutoCluster, 600);
           } else {
             setPromptedComboStatus(dimerComboKey, "declined");
           }
@@ -3064,6 +3075,12 @@ function App() {
         snapStartedAt: performance.now(),
       });
 
+      spawnReactionBurst({ ...carbonAtom.position }, "exothermic");
+      playReactionSound();
+      showEventBanner(
+        { kind: "reaction", title: "Reaction!", subtitle: "CO2 + H2O → H2CO3" },
+        3400
+      );
       addNotebookEntry("Reaction: CO2 + H2O → H2CO3 (exothermic, ΔH ≈ −20 kJ/mol)");
       showEnergyDiagram({
         equation: "CO2 + H2O → H2CO3",
@@ -7449,7 +7466,10 @@ function App() {
             for (const [moleculeId, queuedForce] of queuedForces.entries()) {
               const molecule = getMoleculeById(moleculeId);
 
-              if (!molecule?.center) {
+              // Let a freshly formed molecule finish its snap first: moving it
+              // mid-snap cancels the snap and freezes its atoms in the
+              // distorted pre-snap shape (seen with reaction-product waters).
+              if (!molecule?.center || molecule.snapStartedAt) {
                 continue;
               }
 
