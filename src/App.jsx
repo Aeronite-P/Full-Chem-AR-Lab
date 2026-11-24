@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Landing, { LANDING_EXIT_MS } from "./Landing.jsx";
+import ElectronShellModel, { MemoNucleusCluster } from "./ElectronShellModel.jsx";
 import { ELEMENTS, ELEMENTS_BY_SYMBOL, IONIC_PARTNERS } from "./data/elements.js";
 import "./lab.css";
 
@@ -923,6 +924,22 @@ const clampVectorToRadius = (x, y, maxRadius) => {
   };
 };
 
+// Heavy nuclei are drawn as a representative cluster (at most this many
+// particles, in the true proton:neutron ratio); the panel labels the real
+// counts.
+const NUCLEUS_PARTICLE_CAP = 60;
+
+const getNucleusParticleCounts = (details) => {
+  const total = details.atomicNumber + details.neutrons;
+
+  if (total <= NUCLEUS_PARTICLE_CAP) {
+    return { protons: details.atomicNumber, neutrons: details.neutrons, capped: false };
+  }
+
+  const protons = Math.round((NUCLEUS_PARTICLE_CAP * details.atomicNumber) / total);
+  return { protons, neutrons: NUCLEUS_PARTICLE_CAP - protons, capped: true };
+};
+
 const createAtomicExpansionNucleusParticles = (atomType) => {
   const details = ATOM_DETAILS[atomType];
 
@@ -930,13 +947,15 @@ const createAtomicExpansionNucleusParticles = (atomType) => {
     return [];
   }
 
+  const counts = getNucleusParticleCounts(details);
+
   return [
-    ...getClusterParticleOffsets(details.atomicNumber, 32).map((offset, index) => ({
+    ...getClusterParticleOffsets(counts.protons, 32).map((offset, index) => ({
       ...offset,
       id: `p-${index}`,
       kind: "proton",
     })),
-    ...getClusterParticleOffsets(details.neutrons, 30).map((offset, index) => ({
+    ...getClusterParticleOffsets(counts.neutrons, 30).map((offset, index) => ({
       x: offset.x + 5,
       y: offset.y - 4,
       id: `n-${index}`,
@@ -1143,6 +1162,15 @@ function App() {
       effectsRef,
       bondingModeRef,
       tempBondStateRef,
+      // Test hook: opens the expansion view without the two-hand gesture.
+      openAtomicExpansion: (atom) =>
+        setAtomicExpansionAtomState({
+          id: atom.id,
+          type: atom.type,
+          originPosition: { ...atom.position },
+          openedAt: performance.now(),
+        }),
+      exitAtomicExpansion: () => exitAtomicExpansionMode(),
     };
   }
 
@@ -9423,6 +9451,11 @@ function App() {
           100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.92; }
         }
 
+        @keyframes atomicShellOrbit {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
         @keyframes atomicElectronOrbit {
           0% { transform: translate(-50%, -50%) rotate(0deg); }
           100% { transform: translate(-50%, -50%) rotate(360deg); }
@@ -11329,24 +11362,6 @@ function App() {
                 position: "absolute",
                 left: "50%",
                 top: "50%",
-                width: "68%",
-                height: "68%",
-                borderRadius: "999px",
-                border: "2px solid rgba(103, 232, 249, 0.45)",
-                boxShadow:
-                  `0 0 ${28 + atomicExpansionShellGlow * 18}px rgba(34, 211, 238, ${0.14 + atomicExpansionShellGlow * 0.18}), inset 0 0 ${36 + atomicExpansionShellGlow * 16}px rgba(34, 211, 238, ${0.06 + atomicExpansionShellGlow * 0.14})`,
-                opacity:
-                  atomicExpansionContentOpacity *
-                  (atomicExpansionCollapseGesture.isClosing ? 0.5 : 1),
-                transition: "transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease",
-                transform: `translate(-50%, -50%) scale(${atomicExpansionShellScale})`,
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                left: "50%",
-                top: "50%",
                 width: "82%",
                 height: "82%",
                 borderRadius: "999px",
@@ -11358,45 +11373,20 @@ function App() {
                 transform: `translate(-50%, -50%) scale(${1 - (1 - atomicExpansionShellScale) * 0.55})`,
               }}
             />
-            {Array.from(
-              { length: atomicExpansionDetails.valenceElectrons },
-              (_, index) => {
-                const orbitRadiusPx =
-                  atomicExpansionModelSizePx * 0.34 * atomicExpansionShellScale;
-
-                return (
-                  <div
-                    key={`e-${index}`}
-                    style={{
-                      position: "absolute",
-                      left: "50%",
-                      top: "50%",
-                      width: 0,
-                      height: 0,
-                      opacity:
-                        atomicExpansionContentOpacity *
-                        (atomicExpansionCollapseGesture.isClosing ? 0.2 : 1),
-                      transform: `translate(-50%, -50%) rotate(${(index / atomicExpansionDetails.valenceElectrons) * 360}deg)`,
-                      animation: "atomicElectronOrbit 6.4s linear infinite",
-                      animationDelay: `${(-6.4 * index) / atomicExpansionDetails.valenceElectrons}s`,
-                      transition: "opacity 180ms ease",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "14px",
-                        height: "14px",
-                        borderRadius: "999px",
-                        transform: `translate(${orbitRadiusPx}px, -7px)`,
-                        background: "#67e8f9",
-                        boxShadow:
-                          "0 0 12px rgba(103, 232, 249, 0.95), 0 0 28px rgba(34, 211, 238, 0.6)",
-                      }}
-                    />
-                  </div>
-                );
+            <ElectronShellModel
+              shells={atomicExpansionDetails.shells}
+              sizePx={atomicExpansionModelSizePx}
+              shellScale={atomicExpansionShellScale}
+              opacity={atomicExpansionContentOpacity}
+              isClosing={atomicExpansionCollapseGesture.isClosing}
+              shellGlow={atomicExpansionShellGlow}
+              outerShellLabel={
+                atomicExpansionDetails.group === null ||
+                (atomicExpansionDetails.group >= 3 && atomicExpansionDetails.group <= 12)
+                  ? "outer shell"
+                  : "valence shell"
               }
-            )}
+            />
             <div
               style={{
                 position: "absolute",
@@ -11415,31 +11405,12 @@ function App() {
                 transform: `translate(-50%, -50%) scale(${1 - (1 - atomicExpansionShellScale) * 0.35})`,
               }}
             />
-            {atomicExpansionNucleusParticles.map((particle) => (
-              <div
-                key={particle.id}
-                style={{
-                  position: "absolute",
-                  left: "50%",
-                  top: "50%",
-                  width: particle.kind === "proton" ? "22px" : "20px",
-                  height: particle.kind === "proton" ? "22px" : "20px",
-                  marginLeft: particle.kind === "proton" ? "-11px" : "-10px",
-                  marginTop: particle.kind === "proton" ? "-11px" : "-10px",
-                  borderRadius: "999px",
-                  transform: `translate(${particle.x * atomicExpansionParticleScale}px, ${particle.y * atomicExpansionParticleScale}px)`,
-                  opacity: atomicExpansionContentOpacity,
-                  background:
-                    particle.kind === "proton"
-                      ? "radial-gradient(circle at 32% 28%, #ffd6ea 0%, #fb7185 42%, #e11d48 100%)"
-                      : "radial-gradient(circle at 32% 28%, #dbeafe 0%, #94a3b8 42%, #475569 100%)",
-                  boxShadow:
-                    particle.kind === "proton"
-                      ? "0 0 18px rgba(251, 113, 133, 0.24)"
-                      : "0 0 14px rgba(148, 163, 184, 0.18)",
-                }}
-              />
-            ))}
+            <MemoNucleusCluster
+              particles={atomicExpansionNucleusParticles}
+              sizePx={atomicExpansionModelSizePx}
+              entryScale={atomicExpansionParticleScale}
+              opacity={atomicExpansionContentOpacity}
+            />
             <div
               style={{
                 position: "absolute",
@@ -11525,6 +11496,46 @@ function App() {
               <div>Protons: {atomicExpansionDetails.atomicNumber}</div>
               <div>Neutrons: {atomicExpansionDetails.neutrons}</div>
               <div>Electrons: {atomicExpansionDetails.atomicNumber}</div>
+            </div>
+            <div
+              style={{
+                marginTop: "8px",
+                fontSize: "clamp(12px, 1.45vw, 13px)",
+                lineHeight: 1.55,
+                color: "rgba(226, 232, 240, 0.92)",
+              }}
+            >
+              <div>
+                Shells: {atomicExpansionDetails.shells.join(" · ")}
+              </div>
+              <div style={{ color: "#8be9ff", fontWeight: 700 }}>
+                {atomicExpansionDetails.atomicNumber <= 20
+                  ? atomicExpansionDetails.fullConfigurationText
+                  : atomicExpansionDetails.configurationText}
+                {atomicExpansionDetails.configurationPredicted ? " (predicted)" : ""}
+              </div>
+              <div style={{ opacity: 0.78 }}>
+                Isotope shown: {atomicExpansionDetails.name.toLowerCase()}-
+                {atomicExpansionDetails.massNumber} (
+                {atomicExpansionDetails.isotopeBasis === "abundant"
+                  ? "most abundant"
+                  : "longest-lived"}
+                )
+                {getNucleusParticleCounts(atomicExpansionDetails).capped
+                  ? " · nucleus drawn as a representative cluster"
+                  : ""}
+              </div>
+            </div>
+            <div
+              style={{
+                marginTop: "8px",
+                fontSize: "clamp(11px, 1.3vw, 12px)",
+                lineHeight: 1.5,
+                opacity: 0.62,
+              }}
+            >
+              Shell (Bohr) model — a simplified picture. Real electrons occupy 3-D orbitals,
+              not flat rings.
             </div>
             <div
               style={{
