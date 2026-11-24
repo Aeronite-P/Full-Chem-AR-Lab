@@ -542,7 +542,8 @@ const REACTION_TEMPLATES = [
     reactantMolecules: { SO2: 1, H2O: 1 },
     products: ["H2SO3"],
     energy: "exothermic",
-    deltaH: -40,
+    // ΔfH°: H2SO3(aq) −608.8, SO2(g) −296.8, H2O(l) −285.8 kJ/mol (NBS tables).
+    deltaH: -26,
     prompt: "Acid rain! Dissolve SO2 into water to form sulfurous acid (H2SO3)?",
   },
 ];
@@ -573,7 +574,7 @@ const DECOMPOSITION_RULES = [
     products: ["SO2", "H2O"],
     equation: "H2SO3 → SO2 + H2O",
     baseHalfLifeS: 70,
-    deltaH: 40,
+    deltaH: 26,
   },
   {
     formula: "NH4Cl",
@@ -683,33 +684,33 @@ const compositionMatchesTemplate = (template, counts) => {
 
 // Info shown on the molecule inspector card. Keyed by formula.
 const MOLECULE_INFO = {
-  H2: { name: "Hydrogen gas", molarMass: "2.02", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Nonpolar", fact: "The lightest molecule in the universe — it powers stars." },
+  H2: { name: "Hydrogen gas", molarMass: "2.02", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Nonpolar", fact: "The lightest molecule there is — and hydrogen, its element, is the fuel that powers stars." },
   O2: { name: "Oxygen gas", molarMass: "32.00", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Nonpolar", fact: "About 21% of the air you breathe." },
-  N2: { name: "Nitrogen gas", molarMass: "28.02", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Nonpolar", fact: "78% of air — its triple bond makes it very unreactive." },
+  N2: { name: "Nitrogen gas", molarMass: "28.01", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Nonpolar", fact: "78% of air — its triple bond makes it very unreactive." },
   H2O: { name: "Water", molarMass: "18.02", geometry: "Bent", bondAngle: "104.5°", polarity: "Polar", fact: "Its polarity makes it the “universal solvent.”" },
   CO: { name: "Carbon monoxide", molarMass: "28.01", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Slightly polar", fact: "Toxic — it binds hemoglobin about 240× better than O2." },
-  CO2: { name: "Carbon dioxide", molarMass: "44.01", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "You exhale it; plants turn it back into oxygen." },
+  CO2: { name: "Carbon dioxide", molarMass: "44.01", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "You exhale it; plants use it to build sugars (the oxygen they release comes from water)." },
   NH3: { name: "Ammonia", molarMass: "17.03", geometry: "Trigonal pyramidal", bondAngle: "107°", polarity: "Polar", fact: "Used to make the fertilizer that feeds half the world." },
   CH4: { name: "Methane", molarMass: "16.04", geometry: "Tetrahedral", bondAngle: "109.5°", polarity: "Nonpolar", fact: "Natural gas — and a potent greenhouse gas." },
-  H2CO3: { name: "Carbonic acid", molarMass: "62.03", geometry: "Trigonal planar at C", bondAngle: "~120°", polarity: "Polar", fact: "Makes soda fizzy and slightly acidic." },
+  H2CO3: { name: "Carbonic acid", molarMass: "62.02", geometry: "Trigonal planar at C", bondAngle: "~120°", polarity: "Polar", fact: "Forms when CO₂ dissolves in water — it’s why soda is slightly acidic." },
   "2H2O": { name: "Water dimer", molarMass: "36.03", geometry: "H-bonded pair", bondAngle: "—", polarity: "Polar", fact: "Hydrogen bonds like this give water its high boiling point." },
   "H3O+": { name: "Hydronium", molarMass: "19.02", geometry: "Trigonal pyramidal", bondAngle: "~113°", polarity: "+1 cation", fact: "The true carrier of acidity in water." },
   "NH4+": { name: "Ammonium", molarMass: "18.04", geometry: "Tetrahedral", bondAngle: "109.5°", polarity: "+1 cation", fact: "Ammonia that grabbed an extra proton." },
   NaCl: { name: "Sodium chloride", molarMass: "58.44", geometry: "Ionic pair", bondAngle: "—", polarity: "Ionic", fact: "Table salt — an electron fully transfers from Na to Cl." },
   HCl: { name: "Hydrogen chloride", molarMass: "36.46", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "Polar", fact: "Dissolved in water it becomes hydrochloric acid — your stomach makes it." },
-  "OH-": { name: "Hydroxide", molarMass: "17.01", geometry: "Linear", bondAngle: "—", polarity: "−1 anion", fact: "The signature ion of bases." },
+  "OH-": { name: "Hydroxide", molarMass: "17.01", geometry: "Linear (diatomic)", bondAngle: "—", polarity: "−1 anion", fact: "The signature ion of bases." },
   H2O2: { name: "Hydrogen peroxide", molarMass: "34.01", geometry: "Bent at each O", bondAngle: "~95°", polarity: "Polar", fact: "An antiseptic that decomposes into water and oxygen." },
   O3: { name: "Ozone", molarMass: "48.00", geometry: "Bent (resonance hybrid)", bondAngle: "117°", polarity: "Slightly polar", fact: "Both O–O bonds are identical (order 1½) — the double bond is delocalized. The ozone layer absorbs harmful UV radiation." },
   C2H6: { name: "Ethane", molarMass: "30.07", geometry: "Tetrahedral at each C", bondAngle: "109.5°", polarity: "Nonpolar", fact: "Found in natural gas alongside methane." },
-  C2H4: { name: "Ethene", molarMass: "28.05", geometry: "Trigonal planar", bondAngle: "120°", polarity: "Nonpolar", fact: "Ripens fruit — and becomes polyethylene plastic." },
+  C2H4: { name: "Ethene", molarMass: "28.05", geometry: "Trigonal planar", bondAngle: "~120°", polarity: "Nonpolar", fact: "Ripens fruit — and becomes polyethylene plastic." },
   C2H2: { name: "Ethyne (acetylene)", molarMass: "26.04", geometry: "Linear", bondAngle: "180°", polarity: "Nonpolar", fact: "Burns at ~3300°C in welding torches." },
   CH3OH: { name: "Methanol", molarMass: "32.04", geometry: "Tetrahedral at C", bondAngle: "~109°", polarity: "Polar", fact: "The simplest alcohol — toxic to drink, useful as fuel." },
   NaOH: { name: "Sodium hydroxide", molarMass: "40.00", geometry: "Ionic", bondAngle: "—", polarity: "Ionic", fact: "Lye — a strong base used to make soap." },
   Na2O: { name: "Sodium oxide", molarMass: "61.98", geometry: "Ionic", bondAngle: "—", polarity: "Ionic", fact: "A reactive oxide that forms lye when it meets water." },
-  SO2: { name: "Sulfur dioxide", molarMass: "64.07", geometry: "Bent (resonance hybrid)", bondAngle: "119°", polarity: "Polar", fact: "Both S–O bonds are identical (order 1½) — resonance spreads the double bond over both. Volcano gas that can become acid rain." },
+  SO2: { name: "Sulfur dioxide", molarMass: "64.06", geometry: "Bent (resonance hybrid)", bondAngle: "119°", polarity: "Polar", fact: "Both S–O bonds are identical (order 1½) — resonance spreads the double bond over both. Volcano gas that can become acid rain." },
   H2S: { name: "Hydrogen sulfide", molarMass: "34.08", geometry: "Bent", bondAngle: "92°", polarity: "Slightly polar", fact: "Rotten-egg smell — your nose detects a few parts per billion." },
   NH4Cl: { name: "Ammonium chloride", molarMass: "53.49", geometry: "Ionic (NH₄⁺ / Cl⁻)", bondAngle: "—", polarity: "Ionic", fact: "Forms as white smoke when ammonia and HCl vapors meet mid-air." },
-  H2SO3: { name: "Sulfurous acid", molarMass: "82.08", geometry: "Pyramidal at S", bondAngle: "—", polarity: "Polar", fact: "The acid in acid rain — SO2 dissolved in water." },
+  H2SO3: { name: "Sulfurous acid", molarMass: "82.07", geometry: "Pyramidal at S", bondAngle: "—", polarity: "Polar", fact: "Forms when SO₂ dissolves in rainwater — an early step toward acid rain." },
 };
 
 // pH estimation: each acidic/basic species on screen shifts the lab's pH
@@ -9751,7 +9752,7 @@ function App() {
               {
                 heading: "Temperature, kinetics & equilibrium",
                 body:
-                  "The lab thermostat drives real behavior: thermal (Brownian) motion scales with temperature, hydrogen bonds weaken above ~40°C and break near boiling, and methane won't ignite below 100°C. Unstable species — H₂CO₃, H₂SO₃, and NH₄Cl — decompose with temperature-dependent half-lives, the reverse arrow of an equilibrium. Every reaction shows an energy diagram with its activation barrier and an approximate ΔH, and the pH meter tracks the acids and bases currently in the lab.",
+                  "The lab thermostat drives real behavior: thermal (Brownian) motion scales with temperature, hydrogen bonds weaken above ~40°C and break near boiling, and combustion needs heat to start — in the lab, methane ignites above 100°C (a simplified threshold; real methane self-ignites near 540°C). Unstable species — H₂CO₃, H₂SO₃, and NH₄Cl — decompose with temperature-dependent half-lives (slowed down so you can watch; real carbonic acid falls apart in a fraction of a second), the reverse arrow of an equilibrium. Every reaction shows an energy diagram with its activation barrier (drawn schematically, not to scale) and an approximate ΔH. The pH meter is a qualitative estimate from the acids and bases on screen, not a calculated concentration.",
               },
               {
                 heading: "How the tracking works",
@@ -9761,7 +9762,7 @@ function App() {
               {
                 heading: "Sources",
                 body:
-                  "Electronegativities: Pauling scale. Bond angles and molar masses: standard reference values (CRC Handbook of Chemistry and Physics). Molecule and reaction definitions are data-driven, so every species can be checked against its template.",
+                  "Electronegativities: Pauling scale. Molar masses: IUPAC (CIAAW) abridged standard atomic weights. Bond angles: standard experimental values (CRC Handbook of Chemistry and Physics). Reaction enthalpies: standard enthalpies of formation (NIST/NBS tables). Molecule and reaction definitions are data-driven, so every species can be checked against its template.",
               },
             ].map((section) => (
               <div key={section.heading} style={{ marginBottom: "14px" }}>
@@ -10049,7 +10050,7 @@ function App() {
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              {currentPH.toFixed(1)} · {currentPHLabel}
+              ≈ {currentPH.toFixed(1)} · {currentPHLabel}
             </span>
           </div>
           <div
