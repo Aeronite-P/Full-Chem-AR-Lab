@@ -1088,6 +1088,9 @@ function App() {
   const [showPolarity, setShowPolarity] = useState(false);
   const [lewisView, setLewisView] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  // Display-only: hides the cyan hand-landmark dots. Pinch/grab detection
+  // is unaffected.
+  const [showHandDots, setShowHandDots] = useState(true);
   // The branded landing gate: the camera doesn't start (and no permission
   // popup appears) until the user taps "Enter the Lab".
   const [labEntered, setLabEntered] = useState(false);
@@ -1154,6 +1157,7 @@ function App() {
   const showPolarityRef = useRef(false);
   const lewisViewRef = useRef(false);
   const soundEnabledRef = useRef(true);
+  const showHandDotsRef = useRef(true);
   const audioContextRef = useRef(null);
 
   if (discoveredFormulasRef.current === null) {
@@ -3548,6 +3552,12 @@ function App() {
     const nextValue = event.target.checked;
     lewisViewRef.current = nextValue;
     setLewisView(nextValue);
+  };
+
+  const handleShowHandDotsChange = (event) => {
+    const nextValue = event.target.checked;
+    showHandDotsRef.current = nextValue;
+    setShowHandDots(nextValue);
   };
 
   const handleSoundEnabledChange = (event) => {
@@ -7899,16 +7909,18 @@ function App() {
               }
             }
 
-            for (const landmark of landmarks) {
-              context.beginPath();
-              context.arc(
-                landmark.x * canvas.width,
-                landmark.y * canvas.height,
-                4,
-                0,
-                Math.PI * 2
-              );
-              context.fill();
+            if (showHandDotsRef.current) {
+              for (const landmark of landmarks) {
+                context.beginPath();
+                context.arc(
+                  landmark.x * canvas.width,
+                  landmark.y * canvas.height,
+                  4,
+                  0,
+                  Math.PI * 2
+                );
+                context.fill();
+              }
             }
           }
 
@@ -9997,6 +10009,34 @@ function App() {
             }}
           />
           <span>Lewis Structure View</span>
+        </label>
+        <label
+          style={{
+            marginTop: "clamp(9px, 1.2vw, 10px)",
+            display: "flex",
+            alignItems: "center",
+            gap: "clamp(9px, 1.2vw, 10px)",
+            fontSize: "clamp(12px, 1.2vw, 12px)",
+            fontWeight: 600,
+            lineHeight: 1.3,
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showHandDots}
+            onChange={handleShowHandDotsChange}
+            style={{
+              width: "14px",
+              height: "14px",
+              margin: 0,
+              accentColor: "#7dd3fc",
+              cursor: "pointer",
+              flex: "0 0 auto",
+            }}
+          />
+          <span>Show Hand Tracking Dots</span>
         </label>
         <label
           style={{
