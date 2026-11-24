@@ -506,7 +506,8 @@ const REACTION_TEMPLATES = [
     // (no follow-up prompt).
     autoClusterWaters: true,
     energy: "exothermic",
-    deltaH: -57,
+    // ΔfH°: H2O(l) −285.83, OH⁻(aq) −229.99, H⁺(aq) 0 kJ/mol (NBS tables).
+    deltaH: -56,
     prompt: "Neutralization! The acid H3O⁺ and the base OH⁻ cancel into two waters?",
   },
   {
