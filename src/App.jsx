@@ -769,7 +769,7 @@ const TUTORIAL_STEPS = [
   },
   {
     id: "spawn",
-    text: "Spawn a second Hydrogen atom — tap “Hydrogen (H)” in the menu.",
+    text: "Spawn a second Hydrogen atom — tap “H” in the periodic table in the menu.",
   },
   {
     id: "bondmode",
@@ -1662,15 +1662,18 @@ function App() {
   const resetLab = () => {
     exitAtomicExpansionMode();
     setMoleculePromptState(null);
+    // Ids keep counting up (never reused) so anything still holding an old
+    // id — a hand mid-pinch, a pending burst timer — can't latch onto a
+    // freshly spawned atom or molecule.
+    const starterAtomId = nextAtomIdRef.current;
     atomsRef.current = [
-      createAtom(0, "H", { x: 0.32, y: 0.42 }),
-      createAtom(1, "O", { x: 0.5, y: 0.5 }),
-      createAtom(2, "C", { x: 0.68, y: 0.42 }),
+      createAtom(starterAtomId, "H", { x: 0.32, y: 0.42 }),
+      createAtom(starterAtomId + 1, "O", { x: 0.5, y: 0.5 }),
+      createAtom(starterAtomId + 2, "C", { x: 0.68, y: 0.42 }),
     ];
+    nextAtomIdRef.current = starterAtomId + 3;
     moleculesRef.current = [];
     bondsRef.current = [];
-    nextAtomIdRef.current = 3;
-    nextMoleculeIdRef.current = 1;
     spawnCountRef.current = 0;
     tempBondStateRef.current = { mouse: null };
     grabbedMoleculeIdsRef.current = new Set();
@@ -1686,6 +1689,13 @@ function App() {
     setBondingModeState(false);
     temperatureRef.current = 25;
     setTemperature(25);
+
+    if (energyDiagramTimeoutRef.current) {
+      clearTimeout(energyDiagramTimeoutRef.current);
+      energyDiagramTimeoutRef.current = null;
+    }
+
+    setEnergyDiagram(null);
     addNotebookEntry("Lab reset — fresh bench");
   };
 
@@ -4143,6 +4153,13 @@ function App() {
             });
           }
 
+          // The effect may have been torn down while the permission
+          // prompt was open; release the camera instead of leaking it.
+          if (!isMounted) {
+            stream.getTracks().forEach((track) => track.stop());
+            return;
+          }
+
           video.srcObject = stream;
           await video.play();
 
@@ -4178,6 +4195,12 @@ function App() {
           }
         } catch (cameraError) {
           console.error("Camera unavailable, running in touch-only mode:", cameraError);
+        }
+
+        if (!isMounted) {
+          handLandmarker?.close();
+          stream?.getTracks().forEach((track) => track.stop());
+          return;
         }
 
         const canvas = canvasRef.current;
@@ -6736,6 +6759,33 @@ function App() {
               return;
             }
 
+            // An offer built from loose bonded atoms goes stale as soon as
+            // another loose atom bonds onto that cluster (e.g. "make CO?"
+            // while the user is still finishing CO2): withdraw it so the
+            // larger molecule can be offered instead.
+            if (!currentPrompt.kind || currentPrompt.kind === "generic") {
+              const promptAtomIdSet = new Set(currentPrompt.atomIds ?? []);
+              const clusterGrew = bondsRef.current.some((bond) => {
+                if (getBondCategory(bond) === "hydrogenBond") {
+                  return false;
+                }
+
+                const [leftAtomId, rightAtomId] = getBondAtomIds(bond);
+                const leftInPrompt = promptAtomIdSet.has(leftAtomId);
+
+                if (leftInPrompt === promptAtomIdSet.has(rightAtomId)) {
+                  return false;
+                }
+
+                return getAtomById(leftInPrompt ? rightAtomId : leftAtomId)?.moleculeId === null;
+              });
+
+              if (clusterGrew) {
+                setMoleculePromptState(null);
+                return;
+              }
+            }
+
             if (currentPrompt.kind === "generic") {
               const template = GENERIC_MOLECULE_TEMPLATES.find(
                 (entry) => entry.type === currentPrompt.type
@@ -9154,6 +9204,9 @@ function App() {
     if (energyDiagramTimeoutRef.current) {
       clearTimeout(energyDiagramTimeoutRef.current);
     }
+
+    audioContextRef.current?.close?.().catch(() => {});
+    audioContextRef.current = null;
   }, []);
 
   useEffect(() => {
