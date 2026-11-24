@@ -910,6 +910,10 @@ const createOneEuroFilter = ({ minCutoff = 1.2, beta = 0.055, dCutoff = 1.0 } = 
 // long, so single-frame tracking blips don't drop molecules.
 const HAND_GRACE_MS = 220;
 
+// The lab starts drawing as the landing overlay finishes; camera/hand-model
+// start-up waits this long more, until the lab-reveal animation has ended.
+const CAMERA_START_DELAY_MS = 1100;
+
 // Grabbed objects ease toward the fingertip each frame instead of snapping,
 // which removes residual tremble and gives molecules a bit of weight.
 const HAND_GRAB_FOLLOW = 0.55;
@@ -3946,6 +3950,7 @@ function App() {
     let stream;
     let handLandmarker;
     let animationFrameId;
+    let cameraStartTimeoutId = null;
     let isMounted = true;
     // Hand interaction state is tracked per detected hand (any number of hands).
     // MediaPipe gives no stable ids across frames, so hands are re-matched to
@@ -9177,6 +9182,18 @@ function App() {
         };
 
         drawFrame();
+
+        // Start the camera + hand model only once the lab-reveal animation
+        // has finished: the model's first inference blocks the main thread
+        // for a few hundred ms and made the reveal stutter.
+        await new Promise((resolve) => {
+          cameraStartTimeoutId = window.setTimeout(resolve, CAMERA_START_DELAY_MS);
+        });
+
+        if (!isMounted) {
+          return;
+        }
+
         await initCamera();
       } catch (err) {
         console.error("Camera error:", err);
@@ -9190,6 +9207,10 @@ function App() {
 
       if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
+      }
+
+      if (cameraStartTimeoutId !== null) {
+        window.clearTimeout(cameraStartTimeoutId);
       }
 
       handLandmarker?.close();
@@ -9385,7 +9406,15 @@ function App() {
     };
   }, [tutorialStep, menuOpen, bondingMode]);
 
+  // Re-render every frame so ref-driven overlays (water orbs, expansion
+  // view, inspectors) track the simulation — but only once the lab is in
+  // use: during the landing screen it re-rendered the whole app 60x/s for
+  // nothing and competed with the enter animation.
   useEffect(() => {
+    if (landingPhase !== "done") {
+      return undefined;
+    }
+
     let animationFrameId = 0;
 
     const tick = () => {
@@ -9398,7 +9427,7 @@ function App() {
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, []);
+  }, [landingPhase]);
 
   // eslint-disable-next-line react-hooks/refs
   const waterOverlayMolecules = moleculesRef.current.filter(

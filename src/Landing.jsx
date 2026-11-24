@@ -15,6 +15,38 @@ const prefersReducedMotion = () =>
   typeof window !== "undefined" &&
   window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
+// [extra stroke width px, share of the glow color's alpha], widest first.
+const RING_GLOW_LAYERS = [
+  [30, 0.12],
+  [18, 0.2],
+  [8, 0.32],
+];
+
+const glowSpriteCache = new Map();
+const GLOW_SPRITE_SIZE = 64;
+
+// Radial glow (center at 55% alpha fading to 0), rendered once per color.
+const getGlowSprite = ({ r, g, b }) => {
+  const key = `${r},${g},${b}`;
+  let sprite = glowSpriteCache.get(key);
+
+  if (!sprite) {
+    sprite = document.createElement("canvas");
+    sprite.width = GLOW_SPRITE_SIZE;
+    sprite.height = GLOW_SPRITE_SIZE;
+    const spriteContext = sprite.getContext("2d");
+    const half = GLOW_SPRITE_SIZE / 2;
+    const gradient = spriteContext.createRadialGradient(half, half, 0, half, half, half);
+    gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.55)`);
+    gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+    spriteContext.fillStyle = gradient;
+    spriteContext.fillRect(0, 0, GLOW_SPRITE_SIZE, GLOW_SPRITE_SIZE);
+    glowSpriteCache.set(key, sprite);
+  }
+
+  return sprite;
+};
+
 const hexToRgb = (hex) => {
   const value = parseInt(hex.slice(1), 16);
   return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
@@ -216,13 +248,18 @@ function useAtomField(canvasRef, exitingRef, burstOriginRef) {
           continue;
         }
 
-        const glow = context.createRadialGradient(atom.x, atom.y, 0, atom.x, atom.y, atom.radius * 5);
-        glow.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${alpha * 0.55})`);
-        glow.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
-        context.fillStyle = glow;
-        context.beginPath();
-        context.arc(atom.x, atom.y, atom.radius * 5, 0, Math.PI * 2);
-        context.fill();
+        // Same radial glow as before, drawn from a cached per-color sprite
+        // instead of building a new gradient for every atom every frame.
+        const glowRadius = atom.radius * 5;
+        context.globalAlpha = alpha;
+        context.drawImage(
+          getGlowSprite(atom.rgb),
+          atom.x - glowRadius,
+          atom.y - glowRadius,
+          glowRadius * 2,
+          glowRadius * 2
+        );
+        context.globalAlpha = 1;
 
         context.fillStyle = `rgba(${r}, ${g}, ${b}, ${Math.min(1, alpha + 0.2)})`;
         context.beginPath();
@@ -242,14 +279,22 @@ function useAtomField(canvasRef, exitingRef, burstOriginRef) {
         const eased = 1 - (1 - t) ** 3;
         const radius = eased * Math.hypot(width, height) * 0.55;
         const { r, g, b } = ring.rgb;
-        context.strokeStyle = `rgba(${r}, ${g}, ${b}, ${(1 - t) * 0.7})`;
-        context.lineWidth = 2 + (1 - t) * 6;
-        context.shadowColor = `rgba(${r}, ${g}, ${b}, 0.8)`;
-        context.shadowBlur = 24;
+        const coreAlpha = (1 - t) * 0.7;
+        const coreWidth = 2 + (1 - t) * 6;
+
+        // Soft halo: widening translucent strokes under the core stroke give
+        // the look of the old shadowBlur(24) glow at a fraction of the cost
+        // (canvas shadow blur on a screen-sized ring was the slowest draw).
         context.beginPath();
         context.arc(ring.x, ring.y, radius, 0, Math.PI * 2);
+        for (const [extraWidth, glowShare] of RING_GLOW_LAYERS) {
+          context.strokeStyle = `rgba(${r}, ${g}, ${b}, ${coreAlpha * 0.8 * glowShare})`;
+          context.lineWidth = coreWidth + extraWidth;
+          context.stroke();
+        }
+        context.strokeStyle = `rgba(${r}, ${g}, ${b}, ${coreAlpha})`;
+        context.lineWidth = coreWidth;
         context.stroke();
-        context.shadowBlur = 0;
       }
 
       // Spark burst.

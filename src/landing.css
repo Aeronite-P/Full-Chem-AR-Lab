@@ -321,6 +321,14 @@
   to { opacity: 0; }
 }
 
+/* Promote the pieces that animate during the exit to their own compositor
+   layers so the scatter/zoom doesn't repaint the whole overlay each frame. */
+.landing-overlay.is-exiting .landing-letter,
+.landing-overlay.is-exiting .landing-emblem,
+.landing-overlay.is-exiting .landing-enter-button {
+  will-change: transform, opacity, filter;
+}
+
 .landing-overlay.is-exiting {
   pointer-events: none;
   animation: landingOverlayOut 760ms cubic-bezier(0.55, 0, 0.45, 1) 390ms forwards;
