@@ -34,6 +34,46 @@ const getCellStyle = (category) => {
   };
 };
 
+const MAX_RIPPLES_PER_CELL = 3;
+
+// A small ripple in the cell's family color, spreading from where it was
+// pressed (keyboard presses ripple from the center). Plain DOM, outside
+// React: no re-render, only transform/opacity animate, and each ripple
+// removes itself when its animation ends.
+const spawnCellRipple = (event) => {
+  const cell = event.currentTarget;
+  const layer = cell.querySelector(".pt-ripple-layer");
+
+  if (!layer) {
+    return;
+  }
+
+  const rect = cell.getBoundingClientRect();
+  const fromKeyboard = event.detail === 0;
+  const x = fromKeyboard ? rect.width / 2 : event.clientX - rect.left;
+  const y = fromKeyboard ? rect.height / 2 : event.clientY - rect.top;
+  // Big enough to reach the far corner from wherever the press landed.
+  const diameter =
+    2 * Math.hypot(Math.max(x, rect.width - x), Math.max(y, rect.height - y));
+
+  while (layer.childElementCount >= MAX_RIPPLES_PER_CELL) {
+    layer.firstElementChild.remove();
+  }
+
+  const ripple = document.createElement("span");
+  ripple.className = "pt-ripple";
+  ripple.style.left = `${x}px`;
+  ripple.style.top = `${y}px`;
+  ripple.style.width = `${diameter}px`;
+  ripple.style.height = `${diameter}px`;
+
+  const remove = () => ripple.remove();
+  ripple.addEventListener("animationend", remove, { once: true });
+  // Fallback in case the animation never runs (e.g. a hidden tab).
+  window.setTimeout(remove, 900);
+  layer.appendChild(ripple);
+};
+
 // Placeholders in group 3 that point down to the f-block rows.
 const F_BLOCK_MARKERS = [
   { row: 6, category: "lanthanide", label: "57–71" },
@@ -65,7 +105,11 @@ export default function PeriodicTable({ elements, onSpawn, variant }) {
             className={`pt-cell${element.isFBlock ? " pt-fblock" : ""}${
               element.isFBlock && element.row === 9 ? " pt-fblock-first" : ""
             }`}
-            onClick={() => onSpawn(element.symbol)}
+            onClick={(event) => {
+              // Spawn first; the ripple is purely decorative.
+              onSpawn(element.symbol);
+              spawnCellRipple(event);
+            }}
             onPointerEnter={() => setHovered(element)}
             onFocus={() => setHovered(element)}
             title={`${element.name} (${element.number})`}
@@ -76,6 +120,7 @@ export default function PeriodicTable({ elements, onSpawn, variant }) {
               ...getCellStyle(element.category),
             }}
           >
+            <span className="pt-ripple-layer" aria-hidden="true" />
             <span className="pt-number">{element.number}</span>
             <span className="pt-symbol">{element.symbol}</span>
           </button>
