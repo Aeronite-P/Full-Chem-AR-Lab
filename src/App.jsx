@@ -4772,6 +4772,30 @@ function App() {
             const outerDistance = drawRadius * 0.22;
             const spreadDistance = drawRadius * 0.84;
 
+            // Templates can pin lone-pair directions (degrees, canvas
+            // coordinates) where the shape needs it, e.g. XeF2's three
+            // equatorial pairs or XeF4's pairs above and below the plane.
+            const pinnedTemplate = getGenericTemplateForMolecule(molecule);
+            const pinnedAngles =
+              pinnedTemplate?.lonePairAngles?.[molecule.atomIds.indexOf(atom.id)];
+
+            if (pinnedAngles) {
+              return markHalfPair(
+                pinnedAngles.map((degrees) => {
+                  const radians = (degrees * Math.PI) / 180;
+                  const direction = { x: Math.cos(radians), y: Math.sin(radians) };
+
+                  return {
+                    center: {
+                      x: atomCenter.x + direction.x * baseDistance,
+                      y: atomCenter.y + direction.y * baseDistance,
+                    },
+                    radialDirection: direction,
+                  };
+                })
+              );
+            }
+
             if (groupTotal === 1) {
               if (molecule.formula === "NH3") {
                 const direction = { x: 0, y: -1 };
@@ -4900,8 +4924,11 @@ function App() {
             }
 
             const lonePairGroups = getLonePairGroupCenters(atom, molecule, drawRadius);
+            const unpairedTemplate = getGenericTemplateForMolecule(molecule);
+            const unpairedAngle =
+              unpairedTemplate?.unpaired?.[molecule.atomIds.indexOf(atom.id)];
 
-            if (lonePairGroups.length === 0) {
+            if (lonePairGroups.length === 0 && unpairedAngle === undefined) {
               return;
             }
 
@@ -4936,6 +4963,23 @@ function App() {
                 }
               });
             });
+
+            // A radical's unpaired electron: one dot on its own.
+            if (unpairedAngle !== undefined) {
+              const radians = (unpairedAngle * Math.PI) / 180;
+              const atomX = atom.position.x * canvas.width;
+              const atomY = atom.position.y * canvas.height;
+
+              context.beginPath();
+              context.arc(
+                atomX + Math.cos(radians) * drawRadius * 1.18,
+                atomY + Math.sin(radians) * drawRadius * 1.18,
+                dotRadius * 1.1,
+                0,
+                Math.PI * 2
+              );
+              context.fill();
+            }
 
             context.restore();
           };
@@ -5178,6 +5222,42 @@ function App() {
                     [leftAtom.type, rightAtom.type]
                   );
                 }
+              }
+
+              // Network solids: faint, fading bond ends show where the
+              // structure continues beyond this formula unit.
+              for (const openBond of genericTemplate.openBonds ?? []) {
+                const atom = getAtomById(molecule.atomIds[openBond.a]);
+
+                if (!atom) {
+                  continue;
+                }
+
+                const startX = atom.position.x * canvas.width;
+                const startY = atom.position.y * canvas.height;
+                const offsetX = openBond.x * getVisualScale();
+                const offsetY = openBond.y * getVisualScale();
+                const length = Math.hypot(offsetX, offsetY) || 1;
+                const trim = atomRadius * 0.9;
+                const fromX = startX + (offsetX / length) * trim;
+                const fromY = startY + (offsetY / length) * trim;
+                const toX = startX + offsetX;
+                const toY = startY + offsetY;
+                const rgb = getAtomNeonRgb(atom.type);
+                const fade = context.createLinearGradient(fromX, fromY, toX, toY);
+                fade.addColorStop(0, rgbToCss(rgb, 0.7));
+                fade.addColorStop(1, rgbToCss(rgb, 0));
+
+                context.save();
+                context.setLineDash([5 * getVisualScale(), 5 * getVisualScale()]);
+                context.lineCap = "round";
+                context.lineWidth = 2.6 * getVisualScale();
+                context.strokeStyle = fade;
+                context.beginPath();
+                context.moveTo(fromX, fromY);
+                context.lineTo(toX, toY);
+                context.stroke();
+                context.restore();
               }
 
               return;
@@ -10806,6 +10886,20 @@ function App() {
                     <div style={{ opacity: 0.72, fontStyle: "italic", marginTop: "2px" }}>
                       {currentMoleculeInfo.fact}
                     </div>
+                    {currentMoleculeInfo.note ? (
+                      <div
+                        style={{
+                          marginTop: "4px",
+                          paddingTop: "6px",
+                          borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+                          fontSize: "clamp(11px, 1.25vw, 11.5px)",
+                          lineHeight: 1.45,
+                          color: "rgba(186, 230, 253, 0.85)",
+                        }}
+                      >
+                        {currentMoleculeInfo.note}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {currentInfoMolecule.formula === "H2O" ? (

@@ -477,6 +477,156 @@ export const EXTRA_MOLECULE_TEMPLATES = [
     ],
     "lonePairs": {},
     "prompt": "Would you like to make isobutane (C₄H₁₀)?"
+  },
+  {
+    "type": "nitricOxide",
+    "formula": "NO",
+    "displayLabel": "NO",
+    "composition": {
+      "N": 1,
+      "O": 1
+    },
+    "layout": [
+      {
+        "type": "N",
+        "x": 0,
+        "y": 0
+      },
+      {
+        "type": "O",
+        "x": 92,
+        "y": 0
+      }
+    ],
+    "bonds": [
+      {
+        "a": 0,
+        "b": 1,
+        "order": "double"
+      }
+    ],
+    "lonePairs": {
+      "0": 1,
+      "1": 2
+    },
+    "lonePairAngles": {
+      "0": [
+        180
+      ]
+    },
+    "unpaired": {
+      "0": -90
+    },
+    "prompt": "Would you like to make nitric oxide (NO)? It's a radical — one electron is unpaired."
+  },
+  {
+    "type": "nitrogenDioxide",
+    "formula": "NO2",
+    "displayLabel": "NO2",
+    "composition": {
+      "N": 1,
+      "O": 2
+    },
+    "layout": [
+      {
+        "type": "N",
+        "x": 0,
+        "y": 0
+      },
+      {
+        "type": "O",
+        "x": -84,
+        "y": 38
+      },
+      {
+        "type": "O",
+        "x": 84,
+        "y": 38
+      }
+    ],
+    "bonds": [
+      {
+        "a": 0,
+        "b": 1,
+        "order": "resonance"
+      },
+      {
+        "a": 0,
+        "b": 2,
+        "order": "resonance"
+      }
+    ],
+    "lonePairs": {
+      "1": 2.5,
+      "2": 2.5
+    },
+    "unpaired": {
+      "0": -90
+    },
+    "prompt": "Would you like to make nitrogen dioxide (NO₂)? It's a radical — one electron is unpaired."
+  },
+  {
+    "type": "silicaNetwork",
+    "formula": "SiO2",
+    "displayLabel": "SiO2",
+    "composition": {
+      "Si": 1,
+      "O": 2
+    },
+    "layout": [
+      {
+        "type": "Si",
+        "x": 0,
+        "y": 0
+      },
+      {
+        "type": "O",
+        "x": -88,
+        "y": 20
+      },
+      {
+        "type": "O",
+        "x": 88,
+        "y": 20
+      }
+    ],
+    "bonds": [
+      {
+        "a": 0,
+        "b": 1
+      },
+      {
+        "a": 0,
+        "b": 2
+      }
+    ],
+    "lonePairs": {
+      "1": 2,
+      "2": 2
+    },
+    "openBonds": [
+      {
+        "a": 0,
+        "x": -30,
+        "y": -80
+      },
+      {
+        "a": 0,
+        "x": 30,
+        "y": -80
+      },
+      {
+        "a": 1,
+        "x": -74,
+        "y": 38
+      },
+      {
+        "a": 2,
+        "x": 74,
+        "y": 38
+      }
+    ],
+    "prompt": "Make one formula unit of silicon dioxide (SiO₂)? It's a network solid, not a separate molecule."
   }
 ];
 
@@ -520,6 +670,38 @@ export const EXTRA_MOLECULE_INFO = {
     "fact": "Same formula as butane, branched shape — used as the refrigerant R-600a.",
     "angleSource": "CCCBDB (exp. 110.8°)",
     "note": "Also called 2-methylpropane. Isomer of butane (same formula C₄H₁₀, branched)."
+  },
+  "NO": {
+    "name": "Nitric oxide",
+    "molarMass": "30.01",
+    "geometry": "Linear (diatomic)",
+    "bondAngle": "—",
+    "polarity": "Slightly polar",
+    "fact": "A signalling molecule in your body that relaxes blood vessels.",
+    "angleSource": "—",
+    "note": "Radical: has an unpaired electron.",
+    "radical": true
+  },
+  "NO2": {
+    "name": "Nitrogen dioxide",
+    "molarMass": "46.01",
+    "geometry": "Bent",
+    "bondAngle": "134°",
+    "polarity": "Slightly polar",
+    "fact": "The reddish-brown gas in city smog.",
+    "angleSource": "CCCBDB (exp. 134.1°)",
+    "note": "Radical: has an unpaired electron. Both N–O bonds are equal (resonance, order 1½).",
+    "radical": true
+  },
+  "SiO2": {
+    "name": "Silicon dioxide (quartz)",
+    "molarMass": "60.08",
+    "geometry": "Network solid — SiO₄ tetrahedra",
+    "bondAngle": "109.5° (O–Si–O), ~144° (Si–O–Si)",
+    "polarity": "Network solid",
+    "fact": "Sand and quartz: every Si bonds to four O, and every O bridges two Si.",
+    "angleSource": "Quartz (exp.)",
+    "note": "Network solid: no separate SiO₂ molecules exist. This is one formula unit; the faint open bonds continue into the 3-D network."
   }
 };
 
@@ -543,6 +725,21 @@ export const EXTRA_DISCOVERABLE_MOLECULES = [
     "formula": "CH(CH3)3",
     "label": "C₄H₁₀ — Isobutane",
     "group": "Covalent molecules"
+  },
+  {
+    "formula": "NO",
+    "label": "NO — Nitric oxide",
+    "group": "Radicals"
+  },
+  {
+    "formula": "NO2",
+    "label": "NO₂ — Nitrogen dioxide",
+    "group": "Radicals"
+  },
+  {
+    "formula": "SiO2",
+    "label": "SiO₂ — Silicon dioxide (quartz)",
+    "group": "Network solids"
   }
 ];
 
