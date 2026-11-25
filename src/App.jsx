@@ -3,6 +3,12 @@ import Landing, { LANDING_EXIT_MS } from "./Landing.jsx";
 import ElectronShellModel, { MemoNucleusCluster } from "./ElectronShellModel.jsx";
 import PeriodicTable from "./PeriodicTable.jsx";
 import { ELEMENTS, ELEMENTS_BY_SYMBOL, IONIC_PARTNERS } from "./data/elements.js";
+import {
+  EXTRA_ACID_BASE_CONTRIBUTIONS,
+  EXTRA_DISCOVERABLE_MOLECULES,
+  EXTRA_MOLECULE_INFO,
+  EXTRA_MOLECULE_TEMPLATES,
+} from "./data/molecules.js";
 import "./lab.css";
 
 // Element data (all 118 elements) lives in src/data/elements.js. Each entry
@@ -195,6 +201,7 @@ const DISCOVERABLE_MOLECULES = [
   { formula: "H2S", label: "H₂S — Hydrogen sulfide" },
   { formula: "NH4Cl", label: "NH₄Cl — Ammonium chloride (reaction!)" },
   { formula: "H2SO3", label: "H₂SO₃ — Sulfurous acid (reaction!)" },
+  ...EXTRA_DISCOVERABLE_MOLECULES,
 ];
 
 // Data-driven molecule definitions. Legacy species (H2O, CO2, ...) keep their
@@ -471,6 +478,8 @@ const GENERIC_MOLECULE_TEMPLATES = [
     ],
     lonePairs: { 0: 1, 1: 2, 2: 2, 3: 2 },
   },
+  // Additional species: src/data/molecules.js
+  ...EXTRA_MOLECULE_TEMPLATES,
 ];
 
 // --- Reactions -------------------------------------------------------------
@@ -619,21 +628,182 @@ const isStrictSubsetComposition = (small, large) => {
 // Only molecules that are a sub-structure of some other buildable molecule
 // (OH- inside H2O, C2H4/C2H2 on the way to C2H6, ...) need the stability
 // delay. Everything else prompts immediately, like the legacy molecules.
+// --- Matching by connections ----------------------------------------------
+// Templates are small graphs (atom types + bonds). Bond order is ignored:
+// accepting an offer rebuilds the bonds from the template anyway.
+const buildTemplateGraph = (template) => {
+  const neighbors = template.layout.map(() => new Set());
+
+  for (const bond of template.bonds) {
+    neighbors[bond.a].add(bond.b);
+    neighbors[bond.b].add(bond.a);
+  }
+
+  // Visit roles breadth-first from role 0, so each role (after the first)
+  // has an already-placed neighbor to check against while matching.
+  const order = [0];
+  const seen = new Set([0]);
+
+  for (let index = 0; index < order.length; index += 1) {
+    for (const next of neighbors[order[index]]) {
+      if (!seen.has(next)) {
+        seen.add(next);
+        order.push(next);
+      }
+    }
+  }
+
+  template.layout.forEach((_, role) => {
+    if (!seen.has(role)) {
+      order.push(role);
+    }
+  });
+
+  return { types: template.layout.map((entry) => entry.type), neighbors, order };
+};
+
+const TEMPLATE_GRAPHS = new Map(
+  GENERIC_MOLECULE_TEMPLATES.map((template) => [template.type, buildTemplateGraph(template)])
+);
+
+// Backtracking search for a role -> target-node mapping. With `exact`, every
+// role must keep exactly its template degree (an isomorphism, given equal
+// edge counts); otherwise the template only needs to fit inside the target
+// (a sub-structure, extra atoms/bonds allowed).
+const findStructureMapping = (graph, targetTypes, targetNeighbors, exact) => {
+  const assignment = new Array(graph.types.length).fill(-1);
+  const used = new Set();
+
+  const place = (step) => {
+    if (step === graph.order.length) {
+      return true;
+    }
+
+    const role = graph.order[step];
+    const roleDegree = graph.neighbors[role].size;
+
+    for (let node = 0; node < targetTypes.length; node += 1) {
+      if (used.has(node) || targetTypes[node] !== graph.types[role]) {
+        continue;
+      }
+
+      const nodeDegree = targetNeighbors[node].size;
+
+      if (exact ? nodeDegree !== roleDegree : nodeDegree < roleDegree) {
+        continue;
+      }
+
+      let fits = true;
+
+      for (const neighborRole of graph.neighbors[role]) {
+        const neighborNode = assignment[neighborRole];
+
+        if (neighborNode !== -1 && !targetNeighbors[node].has(neighborNode)) {
+          fits = false;
+          break;
+        }
+      }
+
+      if (!fits) {
+        continue;
+      }
+
+      assignment[role] = node;
+      used.add(node);
+
+      if (place(step + 1)) {
+        return true;
+      }
+
+      assignment[role] = -1;
+      used.delete(node);
+    }
+
+    return false;
+  };
+
+  return place(0) ? assignment : null;
+};
+
+// Role-ordered atom ids if the user's bonded group has exactly the
+// template's connections, else null.
+const matchTemplateStructure = (template, componentAtoms, adjacency) => {
+  const graph = TEMPLATE_GRAPHS.get(template.type);
+
+  if (!graph || componentAtoms.length !== graph.types.length) {
+    return null;
+  }
+
+  const indexById = new Map(componentAtoms.map((atom, index) => [atom.id, index]));
+  const targetNeighbors = componentAtoms.map(
+    (atom) =>
+      new Set(
+        (adjacency.get(atom.id) ?? [])
+          .map((neighborId) => indexById.get(neighborId))
+          .filter((index) => index !== undefined)
+      )
+  );
+  const edgeCount = targetNeighbors.reduce((sum, set) => sum + set.size, 0) / 2;
+
+  if (edgeCount !== template.bonds.length) {
+    return null;
+  }
+
+  const assignment = findStructureMapping(
+    graph,
+    componentAtoms.map((atom) => atom.type),
+    targetNeighbors,
+    true
+  );
+
+  return assignment ? assignment.map((node) => componentAtoms[node].id) : null;
+};
+
+const isSubStructureOf = (smallTemplate, largeTemplate) => {
+  const small = TEMPLATE_GRAPHS.get(smallTemplate.type);
+  const large = TEMPLATE_GRAPHS.get(largeTemplate.type);
+
+  return (
+    small.types.length < large.types.length &&
+    findStructureMapping(small, large.types, large.neighbors, false) !== null
+  );
+};
+
+const getFormulaKey = (composition) =>
+  Object.keys(composition)
+    .sort()
+    .map((type) => `${type}${composition[type]}`)
+    .join("");
+
+// Templates that share a formula with another (isomers): these are told
+// apart by their connections.
+const TEMPLATE_FORMULA_COUNTS = GENERIC_MOLECULE_TEMPLATES.filter(
+  (template) => !template.reactionOnly
+).reduce((counts, template) => {
+  const key = getFormulaKey(template.composition);
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+  return counts;
+}, new Map());
+
+const templateHasIsomer = (template) =>
+  (TEMPLATE_FORMULA_COUNTS.get(getFormulaKey(template.composition)) ?? 0) > 1;
+
+// A template is a "build-through" state (offered only after the bonded group
+// sits unchanged briefly) when its STRUCTURE appears inside a bigger
+// buildable template — SF4 inside SF6, SO2 inside SO3 — or, for the older
+// hand-coded species (no template graph), when its formula is contained in
+// theirs (OH- inside H2O). Sharing atoms isn't enough: H-Cl never appears
+// inside CH3Cl, so HCl is offered straight away.
 const GENERIC_TEMPLATE_NEEDS_DELAY = Object.fromEntries(
   GENERIC_MOLECULE_TEMPLATES.map((template) => [
     template.type,
-    [
-      // reactionOnly species can't be reached by bonding, so they don't make
-      // anything a "build-through" state.
-      ...GENERIC_MOLECULE_TEMPLATES.filter((entry) => !entry.reactionOnly).map(
-        (entry) => entry.composition
-      ),
-      ...LEGACY_DETECTABLE_COMPOSITIONS,
-    ].some(
-      (otherComposition) =>
-        otherComposition !== template.composition &&
-        isStrictSubsetComposition(template.composition, otherComposition)
-    ),
+    !template.reactionOnly &&
+      (GENERIC_MOLECULE_TEMPLATES.some(
+        (other) => other !== template && !other.reactionOnly && isSubStructureOf(template, other)
+      ) ||
+        LEGACY_DETECTABLE_COMPOSITIONS.some((legacyComposition) =>
+          isStrictSubsetComposition(template.composition, legacyComposition)
+        )),
   ])
 );
 
@@ -696,6 +866,7 @@ const MOLECULE_INFO = {
   H2S: { name: "Hydrogen sulfide", molarMass: "34.08", geometry: "Bent", bondAngle: "92°", polarity: "Slightly polar", fact: "Rotten-egg smell — your nose detects a few parts per billion." },
   NH4Cl: { name: "Ammonium chloride", molarMass: "53.49", geometry: "Ionic (NH₄⁺ / Cl⁻)", bondAngle: "—", polarity: "Ionic", fact: "Forms as white smoke when ammonia and HCl vapors meet mid-air." },
   H2SO3: { name: "Sulfurous acid", molarMass: "82.07", geometry: "Pyramidal at S", bondAngle: "—", polarity: "Polar", fact: "Forms when SO₂ dissolves in rainwater — an early step toward acid rain." },
+  ...EXTRA_MOLECULE_INFO,
 };
 
 // pH estimation: each acidic/basic species on screen shifts the lab's pH
@@ -709,6 +880,7 @@ const ACID_BASE_CONTRIBUTIONS = {
   NaOH: 1.8,
   Na2O: 1.8,
   NH3: 0.6,
+  ...EXTRA_ACID_BASE_CONTRIBUTIONS,
 };
 
 const getEstimatedPH = (molecules) => {
@@ -1174,6 +1346,8 @@ function App() {
       effectsRef,
       bondingModeRef,
       tempBondStateRef,
+      templateDelays: GENERIC_TEMPLATE_NEEDS_DELAY,
+      structureMatcher: { matchTemplateStructure, templates: GENERIC_MOLECULE_TEMPLATES },
       // Test hook: opens the expansion view without the two-hand gesture.
       openAtomicExpansion: (atom) =>
         setAtomicExpansionAtomState({
@@ -6431,12 +6605,12 @@ function App() {
             let promptCandidate = null;
 
             for (const componentAtoms of getBondedComponents(atomById, adjacency)) {
-              const comboKey = getMoleculeComboKey(componentAtoms.map(({ id }) => id));
+              const atomComboKey = getMoleculeComboKey(componentAtoms.map(({ id }) => id));
 
-              seenComboKeys.add(comboKey);
+              seenComboKeys.add(atomComboKey);
 
-              if (!genericComponentAgesRef.current.has(comboKey)) {
-                genericComponentAgesRef.current.set(comboKey, now);
+              if (!genericComponentAgesRef.current.has(atomComboKey)) {
+                genericComponentAgesRef.current.set(atomComboKey, now);
               }
 
               // No template offers during the tutorial — it teaches water, and
@@ -6445,40 +6619,75 @@ function App() {
                 continue;
               }
 
-              if (promptedMoleculeCombosRef.current[comboKey]) {
-                continue;
-              }
-
               const composition = getComponentComposition(componentAtoms);
-              const template = GENERIC_MOLECULE_TEMPLATES.find(
+              const candidates = GENERIC_MOLECULE_TEMPLATES.filter(
                 (entry) => !entry.reactionOnly && compositionMatchesTemplate(entry, composition)
               );
 
-              if (!template) {
+              if (candidates.length === 0) {
+                continue;
+              }
+
+              // One template with this formula: match on atom counts (the
+              // offer corrects slightly wrong bonding). Several (isomers):
+              // offer only the one whose connections the user built.
+              let template = null;
+              let structureAtomIds = null;
+
+              if (candidates.length === 1) {
+                template = candidates[0];
+                structureAtomIds = matchTemplateStructure(template, componentAtoms, adjacency);
+              } else {
+                for (const candidate of candidates) {
+                  structureAtomIds = matchTemplateStructure(candidate, componentAtoms, adjacency);
+
+                  if (structureAtomIds) {
+                    template = candidate;
+                    break;
+                  }
+                }
+
+                if (!template) {
+                  continue;
+                }
+              }
+
+              // Isomers share atoms, so the decline/accept memory is kept per
+              // template: declining ethanol mustn't silence dimethyl ether.
+              const comboKey = templateHasIsomer(template)
+                ? `${atomComboKey}:${template.type}`
+                : atomComboKey;
+
+              if (promptedMoleculeCombosRef.current[comboKey]) {
                 continue;
               }
 
               if (
                 GENERIC_TEMPLATE_NEEDS_DELAY[template.type] &&
-                now - genericComponentAgesRef.current.get(comboKey) < GENERIC_PROMPT_DELAY_MS
+                now - genericComponentAgesRef.current.get(atomComboKey) < GENERIC_PROMPT_DELAY_MS
               ) {
                 continue;
               }
 
-              // Assign atoms to template roles by type (deterministic order).
-              const atomsByType = {};
+              // Role order: follow the user's own connections when they match
+              // the template; otherwise assign atoms by type, top to bottom.
+              let orderedAtomIds = structureAtomIds;
 
-              for (const atom of [...componentAtoms].sort((left, right) => {
-                if (left.position.y !== right.position.y) {
-                  return left.position.y - right.position.y;
+              if (!orderedAtomIds) {
+                const atomsByType = {};
+
+                for (const atom of [...componentAtoms].sort((left, right) => {
+                  if (left.position.y !== right.position.y) {
+                    return left.position.y - right.position.y;
+                  }
+
+                  return left.position.x - right.position.x;
+                })) {
+                  atomsByType[atom.type] = [...(atomsByType[atom.type] ?? []), atom];
                 }
 
-                return left.position.x - right.position.x;
-              })) {
-                atomsByType[atom.type] = [...(atomsByType[atom.type] ?? []), atom];
+                orderedAtomIds = template.layout.map((entry) => atomsByType[entry.type].shift().id);
               }
-
-              const orderedAtomIds = template.layout.map((entry) => atomsByType[entry.type].shift().id);
 
               promptCandidate = { template, comboKey, orderedAtomIds };
             }
@@ -6890,6 +7099,20 @@ function App() {
                 genericPromptAtoms.length !== currentPrompt.atomIds.length ||
                 genericPromptAtoms.some((atom) => atom.moleculeId !== null) ||
                 !compositionMatchesTemplate(template, getComponentComposition(genericPromptAtoms))
+              ) {
+                setMoleculePromptState(null);
+                return;
+              }
+
+              // An isomer offer goes stale if the user rewires the group
+              // into a different structure.
+              if (
+                templateHasIsomer(template) &&
+                !matchTemplateStructure(
+                  template,
+                  genericPromptAtoms,
+                  getUnmoleculedBondAdjacency().adjacency
+                )
               ) {
                 setMoleculePromptState(null);
               }
