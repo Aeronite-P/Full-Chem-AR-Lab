@@ -174,34 +174,46 @@ const POSITIVE_CHARGE_RGB = { r: 255, g: 170, b: 64 };
 const NEGATIVE_CHARGE_RGB = { r: 90, g: 200, b: 255 };
 
 const DISCOVERABLE_MOLECULES = [
-  { formula: "H2", label: "H₂ — Hydrogen gas" },
-  { formula: "O2", label: "O₂ — Oxygen gas" },
-  { formula: "N2", label: "N₂ — Nitrogen gas" },
-  { formula: "H2O", label: "H₂O — Water" },
-  { formula: "CO", label: "CO — Carbon monoxide" },
-  { formula: "CO2", label: "CO₂ — Carbon dioxide" },
-  { formula: "NH3", label: "NH₃ — Ammonia" },
-  { formula: "CH4", label: "CH₄ — Methane" },
-  { formula: "H2CO3", label: "H₂CO₃ — Carbonic acid" },
-  { formula: "2H2O", label: "2H₂O — Water dimer" },
-  { formula: "H3O+", label: "H₃O⁺ — Hydronium" },
-  { formula: "NH4+", label: "NH₄⁺ — Ammonium" },
-  { formula: "NaCl", label: "NaCl — Table salt" },
-  { formula: "HCl", label: "HCl — Hydrogen chloride" },
-  { formula: "OH-", label: "OH⁻ — Hydroxide" },
-  { formula: "H2O2", label: "H₂O₂ — Hydrogen peroxide" },
-  { formula: "O3", label: "O₃ — Ozone" },
-  { formula: "C2H6", label: "C₂H₆ — Ethane" },
-  { formula: "C2H4", label: "C₂H₄ — Ethene" },
-  { formula: "C2H2", label: "C₂H₂ — Ethyne" },
-  { formula: "CH3OH", label: "CH₃OH — Methanol" },
-  { formula: "NaOH", label: "NaOH — Sodium hydroxide" },
-  { formula: "Na2O", label: "Na₂O — Sodium oxide" },
-  { formula: "SO2", label: "SO₂ — Sulfur dioxide" },
-  { formula: "H2S", label: "H₂S — Hydrogen sulfide" },
-  { formula: "NH4Cl", label: "NH₄Cl — Ammonium chloride (reaction!)" },
-  { formula: "H2SO3", label: "H₂SO₃ — Sulfurous acid (reaction!)" },
+  { formula: "H2", label: "H₂ — Hydrogen gas" , group: "Covalent molecules" },
+  { formula: "O2", label: "O₂ — Oxygen gas" , group: "Covalent molecules" },
+  { formula: "N2", label: "N₂ — Nitrogen gas" , group: "Covalent molecules" },
+  { formula: "H2O", label: "H₂O — Water" , group: "Covalent molecules" },
+  { formula: "CO", label: "CO — Carbon monoxide" , group: "Covalent molecules" },
+  { formula: "CO2", label: "CO₂ — Carbon dioxide" , group: "Covalent molecules" },
+  { formula: "NH3", label: "NH₃ — Ammonia" , group: "Covalent molecules" },
+  { formula: "CH4", label: "CH₄ — Methane" , group: "Covalent molecules" },
+  { formula: "H2CO3", label: "H₂CO₃ — Carbonic acid" , group: "Reaction products" },
+  { formula: "2H2O", label: "2H₂O — Water dimer" , group: "Covalent molecules" },
+  { formula: "H3O+", label: "H₃O⁺ — Hydronium" , group: "Ions" },
+  { formula: "NH4+", label: "NH₄⁺ — Ammonium" , group: "Ions" },
+  { formula: "NaCl", label: "NaCl — Table salt" , group: "Ionic compounds" },
+  { formula: "HCl", label: "HCl — Hydrogen chloride" , group: "Covalent molecules" },
+  { formula: "OH-", label: "OH⁻ — Hydroxide" , group: "Ions" },
+  { formula: "H2O2", label: "H₂O₂ — Hydrogen peroxide" , group: "Covalent molecules" },
+  { formula: "O3", label: "O₃ — Ozone" , group: "Covalent molecules" },
+  { formula: "C2H6", label: "C₂H₆ — Ethane" , group: "Covalent molecules" },
+  { formula: "C2H4", label: "C₂H₄ — Ethene" , group: "Covalent molecules" },
+  { formula: "C2H2", label: "C₂H₂ — Ethyne" , group: "Covalent molecules" },
+  { formula: "CH3OH", label: "CH₃OH — Methanol" , group: "Covalent molecules" },
+  { formula: "NaOH", label: "NaOH — Sodium hydroxide" , group: "Ionic compounds" },
+  { formula: "Na2O", label: "Na₂O — Sodium oxide" , group: "Ionic compounds" },
+  { formula: "SO2", label: "SO₂ — Sulfur dioxide" , group: "Covalent molecules" },
+  { formula: "H2S", label: "H₂S — Hydrogen sulfide" , group: "Covalent molecules" },
+  { formula: "NH4Cl", label: "NH₄Cl — Ammonium chloride (reaction)" , group: "Reaction products" },
+  { formula: "H2SO3", label: "H₂SO₃ — Sulfurous acid (reaction)" , group: "Reaction products" },
   ...EXTRA_DISCOVERABLE_MOLECULES,
+];
+
+// Order of the sections in the Discoveries list.
+const DISCOVERY_GROUPS = [
+  "Covalent molecules",
+  "Expanded octets",
+  "Noble-gas compounds",
+  "Ions",
+  "Ionic compounds",
+  "Radicals",
+  "Network solids",
+  "Reaction products",
 ];
 
 // Data-driven molecule definitions. Legacy species (H2O, CO2, ...) keep their
@@ -1685,13 +1697,15 @@ function App() {
     showEventBanner({ kind: "discovery", title: "Molecule discovered!", subtitle: entry.label });
     playDiscoverySound();
 
-    if (nextDiscovered.length === DISCOVERABLE_MOLECULES.length) {
+    // Stored discoveries can include formulas from older versions, so check
+    // that every listed species has really been found.
+    if (DISCOVERABLE_MOLECULES.every((discoverable) => nextDiscovered.includes(discoverable.formula))) {
       window.setTimeout(() => {
         showEventBanner(
           {
             kind: "all",
             title: "All molecules discovered!",
-            subtitle: "You found every molecule in the lab 🎉",
+            subtitle: `You found all ${DISCOVERABLE_MOLECULES.length} species in the lab 🎉`,
           },
           5200
         );
@@ -4153,6 +4167,9 @@ function App() {
   const atomicExpansionCollapseGesture = atomicExpansionCollapseGestureRef.current;
   // eslint-disable-next-line react-hooks/refs
   const currentPH = getEstimatedPH(moleculesRef.current);
+  const discoveredCount = DISCOVERABLE_MOLECULES.filter((discoverable) =>
+    discoveredFormulas.includes(discoverable.formula)
+  ).length;
   const currentPHLabel = currentPH < 6.5 ? "Acidic" : currentPH > 7.5 ? "Basic" : "Neutral";
   const currentPHColor = currentPH < 6.5 ? "#fb7185" : currentPH > 7.5 ? "#a78bfa" : "#86efac";
   // Molecule inspector target: any grabbed molecule first, else the hovered one.
@@ -10182,7 +10199,7 @@ function App() {
               {
                 heading: "Molecular geometry (VSEPR)",
                 body:
-                  "Molecules snap into shapes based on VSEPR theory: water is bent at 104.5°, ammonia is trigonal pyramidal (107°), methane tetrahedral (109.5°), CO₂ linear, H₂S bent at 92°. Lone pairs are drawn from each species' Lewis structure — including chloride's full octet in ionic compounds. SO₂ and O₃ are drawn as resonance hybrids: instead of one double and one single bond, both bonds render identically as order 1½ (a solid stick plus a dashed delocalized stick) — matching the real molecules, whose two bonds are exactly the same length.",
+                  "Molecules snap into shapes based on VSEPR theory: water is bent at 104.5°, ammonia is trigonal pyramidal (107°), methane tetrahedral (109.5°), CO₂ linear, H₂S bent at 92°. Lone pairs are drawn from each species' Lewis structure — including chloride's full octet in ionic compounds. SO₂ and O₃ are drawn as resonance hybrids: instead of one double and one single bond, both bonds render identically as order 1½ (a solid stick plus a dashed delocalized stick) — matching the real molecules, whose two bonds are exactly the same length. Expanded-octet molecules show the shapes usually seen only in textbooks: see-saw SF₄, T-shaped ClF₃, square planar XeF₄, square pyramidal IF₅, trigonal bipyramidal PCl₅, octahedral SF₆ and pentagonal bipyramidal IF₇, drawn as 2-D views of the 3-D shape. Isomers such as ethanol and dimethyl ether (both C₂H₆O) are told apart by which atoms are bonded to which. Radicals (NO, NO₂) show their unpaired electron as a single dot, and SiO₂ is shown as one formula unit of a network solid, with faint open bonds where the quartz network continues.",
               },
               {
                 heading: "Bond polarity",
@@ -10192,7 +10209,7 @@ function App() {
               {
                 heading: "Bonding rules",
                 body:
-                  "Atoms enforce their real valences: H forms 1 bond, O 2, N 3, C 4, S 2 — with the extra dative-bond slot that creates the hydronium (H₃O⁺) and ammonium (NH₄⁺) cations. Metals never bond covalently: sodium only pairs ionically.",
+                  "Atoms enforce their real valences (counted in bond order — a double bond uses 2): H forms 1 bond, O 2, N 3, C 4. N and O can take one extra bond only from hydrogen, which makes NH₄⁺ and H₃O⁺. Elements from the third row down can exceed an octet, but only with very electronegative partners, and never past a real compound: S reaches 6 only with F or O (SF₆, H₂SO₄), P 5 with F, Cl or O (PCl₅, H₃PO₄), Cl 3 and I 7 with F (ClF₃, IF₇), xenon 6 with F or O (XeF₄, XeO₃) and krypton 2 with F (KrF₂) — so SH₆, SCl₆, NCl₅ and OF₄ are refused. These \u201cexpanded octets\u201d are the textbook Lewis picture; modern bonding theory explains them without d orbitals. Alkali and alkaline-earth metals never bond covalently: they only pair ionically with halides, oxide or sulfide.",
               },
               {
                 heading: "Reactions conserve mass",
@@ -10960,7 +10977,7 @@ function App() {
                   fontWeight: 700,
                 }}
               >
-                🧪 Discoveries ({discoveredFormulas.length}/{DISCOVERABLE_MOLECULES.length})
+                🧪 Discoveries ({discoveredCount}/{DISCOVERABLE_MOLECULES.length})
               </span>
               <span style={{ fontSize: "12px", opacity: 0.7 }}>{questOpen ? "▲" : "▼"}</span>
             </button>
@@ -10971,33 +10988,73 @@ function App() {
                   display: "flex",
                   flexDirection: "column",
                   gap: "5px",
-                  maxHeight: "230px",
+                  maxHeight: "min(420px, 60vh)",
                   overflowY: "auto",
                 }}
               >
-                {DISCOVERABLE_MOLECULES.map((discoverable) => {
-                  const isFound = discoveredFormulas.includes(discoverable.formula);
+                {DISCOVERY_GROUPS.map((group) => {
+                  const entries = DISCOVERABLE_MOLECULES.filter(
+                    (discoverable) => discoverable.group === group
+                  );
+                  const foundInGroup = entries.filter((discoverable) =>
+                    discoveredFormulas.includes(discoverable.formula)
+                  ).length;
+
+                  if (entries.length === 0) {
+                    return null;
+                  }
 
                   return (
                     <div
-                      key={discoverable.formula}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "8px",
-                        padding: "5px 8px",
-                        borderRadius: "8px",
-                        fontSize: "clamp(12px, 1.3vw, 12px)",
-                        background: isFound ? "rgba(34, 197, 94, 0.1)" : "rgba(255, 255, 255, 0.03)",
-                        border: isFound
-                          ? "1px solid rgba(134, 239, 172, 0.22)"
-                          : "1px solid rgba(255, 255, 255, 0.05)",
-                        color: isFound ? "#bbf7d0" : "rgba(255, 255, 255, 0.42)",
-                      }}
+                      key={group}
+                      style={{ display: "flex", flexDirection: "column", gap: "5px" }}
                     >
-                      <span>{isFound ? discoverable.label : "??? — undiscovered"}</span>
-                      {isFound ? <span style={{ fontWeight: 800 }}>✓</span> : null}
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "8px",
+                          marginTop: "6px",
+                          fontSize: "clamp(11px, 1.2vw, 11px)",
+                          fontWeight: 700,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          color: "rgba(186, 230, 253, 0.7)",
+                        }}
+                      >
+                        <span>{group}</span>
+                        <span style={{ opacity: 0.8 }}>
+                          {foundInGroup}/{entries.length}
+                        </span>
+                      </div>
+                      {entries.map((discoverable) => {
+                        const isFound = discoveredFormulas.includes(discoverable.formula);
+
+                        return (
+                          <div
+                            key={discoverable.formula}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: "8px",
+                              padding: "5px 8px",
+                              borderRadius: "8px",
+                              fontSize: "clamp(12px, 1.3vw, 12px)",
+                              background: isFound
+                                ? "rgba(34, 197, 94, 0.1)"
+                                : "rgba(255, 255, 255, 0.03)",
+                              border: isFound
+                                ? "1px solid rgba(134, 239, 172, 0.22)"
+                                : "1px solid rgba(255, 255, 255, 0.05)",
+                              color: isFound ? "#bbf7d0" : "rgba(255, 255, 255, 0.42)",
+                            }}
+                          >
+                            <span>{isFound ? discoverable.label : "??? — undiscovered"}</span>
+                            {isFound ? <span style={{ fontWeight: 800 }}>✓</span> : null}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
