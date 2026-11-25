@@ -195,29 +195,60 @@ const getValenceElectrons = (z, group) => {
 // Lab bonding model. Only elements whose everyday bonding the lab can show
 // honestly are allowed to bond:
 // - covalent: main-group nonmetals/metalloids, limited to their common
-//   valence (N and O keep their extra dative slot for NH4+ and H3O+);
+//   valence; some have a higher limit that applies only with specific
+//   partners (see EXPANDED_BONDING);
 // - ionic: alkali / alkaline-earth metals, which (like sodium) never share
 //   electrons — they only pair with halides, oxide or sulfide;
-// - none: noble gases (they don't bond), and metals whose bonding a
+// - none: He, Ne, Ar (no stable compounds), and elements whose bonding a
 //   stick-and-ball lab can't represent truthfully.
+// Limits are in bond order (a double bond uses 2).
 const COVALENT_BOND_LIMITS = {
-  H: 1, Be: 2, B: 3, C: 4, N: 4, O: 3, F: 1, Si: 4, P: 3, S: 2, Cl: 1,
-  Ge: 4, As: 3, Se: 2, Br: 1, Sb: 3, Te: 2, I: 1,
+  H: 1, Be: 2, B: 3, C: 4, N: 3, O: 2, F: 1, Si: 4, P: 3, S: 2, Cl: 1,
+  Ge: 4, As: 3, Se: 2, Br: 1, Sb: 3, Te: 2, I: 1, Xe: 0, Kr: 0,
 };
-// Typical number of bonds shown in the inspector (N/O without dative slot).
-const COMMON_COVALENT_BONDS = { ...COVALENT_BOND_LIMITS, N: 3, O: 2 };
+
+// Higher limits that apply only when EVERY partner of the atom is one of the
+// listed elements. Each is justified by a real compound the lab includes;
+// the limit is never higher than that compound needs. Second-row atoms
+// never pass an octet: N and O only gain the dative bond that makes NH4+
+// and H3O+ (from H+), C and F get no extra capacity at all.
+const EXPANDED_BONDING = {
+  N: { maxBonds: 4, partners: ["H"], compounds: "NH₄⁺" },
+  O: { maxBonds: 3, partners: ["H"], compounds: "H₃O⁺" },
+  P: { maxBonds: 5, partners: ["F", "Cl", "O"], compounds: "PCl₅, PF₅, H₃PO₄" },
+  S: { maxBonds: 6, partners: ["F", "O"], compounds: "SF₆, SO₃, H₂SO₄" },
+  Cl: { maxBonds: 3, partners: ["F"], compounds: "ClF₃" },
+  I: { maxBonds: 7, partners: ["F"], compounds: "IF₅, IF₇" },
+  Xe: { maxBonds: 6, partners: ["F", "O"], compounds: "XeF₂, XeF₄, XeO₃" },
+  Kr: { maxBonds: 2, partners: ["F"], compounds: "KrF₂" },
+};
+
+// Typical number of bonds shown in the inspector.
+const COMMON_COVALENT_BONDS = COVALENT_BOND_LIMITS;
 const IONIC_METAL_CHARGES = { Li: 1, Na: 1, K: 1, Rb: 1, Cs: 1, Mg: 2, Ca: 2, Sr: 2, Ba: 2 };
 export const IONIC_PARTNERS = new Set(["F", "Cl", "Br", "I", "O", "S"]);
 
+const NOBLE_GAS_REASONS = {
+  He: "Helium forms no stable compounds.",
+  Ne: "Neon forms no stable compounds.",
+  Ar: "Argon forms no stable compounds.",
+  Rn: "Radon compounds are barely studied — not modeled in the lab.",
+  Og: "Oganesson's chemistry is unknown — not modeled in the lab.",
+};
+
 const getBonding = (symbol, category) => {
   if (COVALENT_BOND_LIMITS[symbol] !== undefined) {
-    return { kind: "covalent", maxBonds: COVALENT_BOND_LIMITS[symbol] };
+    return {
+      kind: "covalent",
+      maxBonds: COVALENT_BOND_LIMITS[symbol],
+      expanded: EXPANDED_BONDING[symbol] ?? null,
+    };
   }
   if (IONIC_METAL_CHARGES[symbol] !== undefined) {
     return { kind: "ionic", maxBonds: IONIC_METAL_CHARGES[symbol], charge: IONIC_METAL_CHARGES[symbol] };
   }
   if (category === "noble-gas") {
-    return { kind: "none", reason: "Noble gases have full shells — they don't bond here." };
+    return { kind: "none", reason: NOBLE_GAS_REASONS[symbol] ?? "This noble gas doesn't bond in the lab." };
   }
   return { kind: "none", reason: "Bonding for this element isn't modeled in the lab." };
 };

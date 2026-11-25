@@ -1822,15 +1822,70 @@ function App() {
   const getBondKey = (leftAtomId, rightAtomId) =>
     [leftAtomId, rightAtomId].sort((left, right) => left - right).join("-");
 
-  // Bond capacity per element comes from the lab bonding model
-  // (src/data/elements.js): common covalent valence for nonmetals/metalloids
-  // — O keeps a 3rd (dative) slot for H3O+, N a 4th for NH4+, and S starts
-  // with 2 (SO2's resonance bonds are set when it snaps) — the ion charge for
-  // alkali/alkaline-earth metals, and 0 for elements that don't bond here.
-  const getAtomBondLimit = (atomType) => {
-    const bonding = getElementBonding(atomType);
+  const getCovalentPartnerTypes = (atomId) =>
+    bondsRef.current
+      .filter((bond) => getBondCategory(bond) === "covalent")
+      .map((bond) => {
+        const [atomAId, atomBId] = getBondAtomIds(bond);
+        return atomAId === atomId ? atomBId : atomBId === atomId ? atomAId : null;
+      })
+      .filter((partnerId) => partnerId !== null)
+      .map((partnerId) => getAtomById(partnerId)?.type)
+      .filter(Boolean);
 
-    return bonding.kind === "none" ? 0 : bonding.maxBonds;
+  const listElementNames = (symbols) => {
+    const names = symbols.map((symbol) => ATOM_DETAILS[symbol]?.name.toLowerCase() ?? symbol);
+    return names.length <= 1
+      ? names.join("")
+      : `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+  };
+
+  // Bond capacity (in bond order: a double bond uses 2) from the lab bonding
+  // model in src/data/elements.js. Each element has a normal limit; some
+  // have a higher one that applies only when every partner is on that
+  // element's list (S reaches 6 only with F/O, as in SF6 and H2SO4). Returns
+  // a message explaining a refusal, or null if the bond is allowed.
+  const getBondRefusal = (atom, partnerAtom, addedOrder) => {
+    const bonding = getElementBonding(atom.type);
+
+    if (bonding.kind === "none") {
+      return bonding.reason;
+    }
+
+    const total = getBondCountForAtom(atom.id) + addedOrder;
+
+    if (total <= bonding.maxBonds) {
+      return null;
+    }
+
+    const expanded = bonding.expanded;
+    const name = ATOM_DETAILS[atom.type]?.name ?? atom.type;
+
+    if (!expanded) {
+      return "Bond limit reached";
+    }
+
+    const partnerList = listElementNames(expanded.partners);
+
+    if (total > expanded.maxBonds) {
+      return `${name} forms at most ${expanded.maxBonds} bonds (${expanded.compounds})`;
+    }
+
+    const partnerTypes = [...getCovalentPartnerTypes(atom.id), partnerAtom.type];
+
+    if (partnerTypes.every((type) => expanded.partners.includes(type))) {
+      return null;
+    }
+
+    if (bonding.maxBonds === 0) {
+      return `${name} bonds only with ${partnerList} (${expanded.compounds})`;
+    }
+
+    if (expanded.maxBonds === bonding.maxBonds + 1 && expanded.partners.length === 1) {
+      return `${name}'s extra bond comes only from ${partnerList} (${expanded.compounds})`;
+    }
+
+    return `${name} forms ${expanded.maxBonds} bonds only with ${partnerList} (${expanded.compounds})`;
   };
 
   const getLonePairCount = (moleculeFormula, atomType) => {
@@ -2805,13 +2860,13 @@ function App() {
     }
 
     if (enforceBondLimits && !isIntermolecularHydrogenBond) {
-      const startBondLimit = getAtomBondLimit(startAtom.type);
-      const endBondLimit = getAtomBondLimit(endAtom.type);
-      const startBondCount = getBondCountForAtom(startAtomId);
-      const endBondCount = getBondCountForAtom(endAtomId);
+      const addedOrder = COVALENT_BOND_ORDER[type] ?? 1;
+      const refusal =
+        getBondRefusal(startAtom, endAtom, addedOrder) ??
+        getBondRefusal(endAtom, startAtom, addedOrder);
 
-      if (startBondCount >= startBondLimit || endBondCount >= endBondLimit) {
-        showBondLimitMessage();
+      if (refusal) {
+        showBondLimitMessage(refusal);
         return false;
       }
     }
@@ -10770,7 +10825,13 @@ function App() {
                 <div>Valence electrons: {selectedAtomDetails.valenceElectrons ?? "— (varies)"}</div>
                 <div>
                   {selectedAtomDetails.bonding.kind === "covalent"
-                    ? `Common bonds: ${selectedAtomDetails.commonBonds}`
+                    ? selectedAtomDetails.bonding.expanded
+                      ? `Common bonds: ${selectedAtomDetails.commonBonds || "none"} · up to ${
+                          selectedAtomDetails.bonding.expanded.maxBonds
+                        } with ${selectedAtomDetails.bonding.expanded.partners.join("/")} (${
+                          selectedAtomDetails.bonding.expanded.compounds
+                        })`
+                      : `Common bonds: ${selectedAtomDetails.commonBonds}`
                     : selectedAtomDetails.bonding.kind === "ionic"
                       ? `Bonds ionically (forms ${selectedAtomDetails.symbol}${
                           selectedAtomDetails.bonding.charge === 1 ? "⁺" : "²⁺"
