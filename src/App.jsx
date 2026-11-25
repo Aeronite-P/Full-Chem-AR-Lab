@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Landing, { LANDING_EXIT_MS } from "./Landing.jsx";
 import ElectronShellModel, { MemoNucleusCluster } from "./ElectronShellModel.jsx";
+import PeriodicTable from "./PeriodicTable.jsx";
 import { ELEMENTS, ELEMENTS_BY_SYMBOL, IONIC_PARTNERS } from "./data/elements.js";
 import "./lab.css";
 
@@ -727,6 +728,7 @@ const PERIODIC_ELEMENTS = ELEMENTS.map((element) => ({
   row: element.gridRow,
   col: element.gridColumn,
   name: element.name,
+  category: element.category,
   isFBlock: element.group === null,
 }));
 
@@ -748,7 +750,7 @@ const TUTORIAL_STEPS = [
   },
   {
     id: "spawn",
-    text: "Spawn a second Hydrogen atom — tap “H” in the periodic table in the menu.",
+    text: "Spawn a second Hydrogen atom — tap “H” in the periodic table.",
   },
   {
     id: "bondmode",
@@ -10444,65 +10446,8 @@ function App() {
             >
               Bonding Mode: {bondingMode ? "ON" : "OFF"}
             </button>
-            <div
-              style={{
-                fontSize: "clamp(11px, 1.2vw, 11px)",
-                opacity: 0.6,
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-              }}
-            >
-              Periodic table — tap an element to spawn it
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(18, minmax(0, 1fr))",
-                gap: "2px",
-              }}
-            >
-              {PERIODIC_ELEMENTS.map((element) => {
-                const isSpawnable = Boolean(ATOM_DETAILS[element.symbol]);
-                const neonColor = isSpawnable
-                  ? ATOM_NEON_COLORS[element.symbol] ?? "#7dd3fc"
-                  : null;
-
-                return (
-                  <button
-                    key={element.symbol}
-                    type="button"
-                    disabled={!isSpawnable}
-                    onClick={() => spawnAtom(element.symbol)}
-                    title={`${element.name} (${element.number})${
-                      isSpawnable ? "" : " — coming soon"
-                    }`}
-                    style={{
-                      gridColumn: element.col,
-                      gridRow: element.row,
-                      marginTop: element.isFBlock && element.row === 9 ? "5px" : 0,
-                      aspectRatio: "1 / 1",
-                      minWidth: 0,
-                      padding: 0,
-                      borderRadius: "4px",
-                      fontSize: "clamp(8px, 1vw, 10px)",
-                      fontWeight: 700,
-                      lineHeight: 1,
-                      border: isSpawnable
-                        ? `1px solid ${neonColor}`
-                        : "1px solid rgba(255, 255, 255, 0.08)",
-                      background: isSpawnable
-                        ? "rgba(125, 211, 252, 0.08)"
-                        : "rgba(255, 255, 255, 0.02)",
-                      color: isSpawnable ? "#ffffff" : "rgba(255, 255, 255, 0.28)",
-                      cursor: isSpawnable ? "pointer" : "default",
-                      boxShadow: isSpawnable ? `0 0 6px ${neonColor}44` : "none",
-                    }}
-                  >
-                    {element.symbol}
-                  </button>
-                );
-              })}
-            </div>
+            <div className="pt-hint">Periodic table is open below the camera ↓</div>
+            <PeriodicTable elements={PERIODIC_ELEMENTS} onSpawn={spawnAtom} variant="panel" />
           </div>
         ) : null}
         <div
@@ -11485,6 +11430,9 @@ function App() {
       ) : null}
           </div>
         </div>
+        {menuOpen && !atomicExpansionDetails ? (
+          <PeriodicTable elements={PERIODIC_ELEMENTS} onSpawn={spawnAtom} variant="camera" />
+        ) : null}
         {atomicExpansionDetails ? (
           <div
             aria-hidden="true"

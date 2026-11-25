@@ -222,3 +222,221 @@
     opacity: 1;
   }
 }
+
+/* ---------- Periodic table (spawn menu) ---------- */
+
+.pt-wrap {
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+/* Laptop/desktop: a roomy drawer under the camera. Phones (stacked layout):
+   inside the menu, which is already full width there. */
+.pt-camera {
+  width: min(100%, 760px);
+  padding: 14px 16px 12px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.78) 0%, rgba(2, 6, 23, 0.7) 100%);
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  backdrop-filter: blur(10px);
+  box-shadow:
+    0 18px 40px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 24px rgba(56, 189, 248, 0.08);
+  animation: labFadeDown 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.pt-panel {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .pt-camera {
+    display: none;
+  }
+
+  .pt-panel {
+    display: block;
+  }
+}
+
+.presentation-mode .pt-camera {
+  display: none;
+}
+
+.pt-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.pt-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(186, 230, 253, 0.75);
+  white-space: nowrap;
+}
+
+.pt-readout {
+  font-size: 12.5px;
+  color: rgba(226, 232, 240, 0.82);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pt-readout strong {
+  color: #ffffff;
+  font-weight: 800;
+  margin-right: 2px;
+}
+
+.pt-grid {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: repeat(18, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.pt-cell,
+.pt-marker {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid;
+  box-sizing: border-box;
+}
+
+.pt-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f8fafc;
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+.pt-cell:hover,
+.pt-cell:focus-visible {
+  transform: translateY(-1px) scale(1.12);
+  filter: brightness(1.25);
+  box-shadow: 0 0 10px var(--pt-color);
+  z-index: 1;
+  outline: none;
+}
+
+.pt-cell:active {
+  transform: scale(0.96);
+}
+
+.pt-symbol {
+  font-size: clamp(9px, 2.1cqi, 15px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.pt-number {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: clamp(6px, 1cqi, 8.5px);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--pt-color);
+  opacity: 0.85;
+}
+
+.pt-fblock .pt-symbol {
+  color: #ffffff;
+}
+
+/* Gap between the main table and the f-block rows (first f-row only). */
+.pt-fblock-first {
+  margin-top: 8px;
+}
+
+.pt-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(5.5px, 1cqi, 8.5px);
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+  line-height: 1.05;
+  opacity: 0.85;
+}
+
+.pt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: rgba(226, 232, 240, 0.72);
+}
+
+.pt-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.pt-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid;
+  box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .pt-number {
+    display: none;
+  }
+
+  .pt-grid {
+    gap: 2px;
+  }
+
+  .pt-legend {
+    font-size: 10px;
+    gap: 4px 9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pt-camera {
+    animation: none;
+  }
+}
+
+.pt-hint {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(186, 230, 253, 0.6);
+}
+
+@media (max-width: 860px) {
+  .pt-hint {
+    display: none;
+  }
+}
+
+/* Small cells: the atomic number would crowd the symbol, so drop it (the
+   hover readout still shows it). */
+@container (max-width: 600px) {
+  .pt-number {
+    display: none;
+  }
+}
