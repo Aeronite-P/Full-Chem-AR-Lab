@@ -213,6 +213,9 @@ const COVALENT_BOND_LIMITS = {
 // never pass an octet: N and O only gain the dative bond that makes NH4+
 // and H3O+ (from H+), C and F get no extra capacity at all.
 const EXPANDED_BONDING = {
+  // Bridging hydrogen: a second (half) bond, only between two borons.
+  H: { maxBonds: 2, partners: ["B"], compounds: "bridging H in B₂H₆" },
+  B: { maxBonds: 4, partners: ["H"], compounds: "BH₄⁻, B₂H₆" },
   N: { maxBonds: 4, partners: ["H"], compounds: "NH₄⁺" },
   O: { maxBonds: 3, partners: ["H"], compounds: "H₃O⁺" },
   P: { maxBonds: 5, partners: ["F", "Cl", "O"], compounds: "PCl₅, PF₅, H₃PO₄" },

@@ -3533,6 +3533,154 @@ export const EXTRA_MOLECULE_TEMPLATES = [
       }
     ],
     "prompt": "Make one formula unit of silicon dioxide (SiO₂)? It's a network solid, not a separate molecule."
+  },
+  {
+    "type": "diborane",
+    "formula": "B2H6",
+    "displayLabel": "B2H6",
+    "composition": {
+      "B": 2,
+      "H": 6
+    },
+    "layout": [
+      {
+        "type": "B",
+        "x": -60,
+        "y": 0
+      },
+      {
+        "type": "B",
+        "x": 60,
+        "y": 0
+      },
+      {
+        "type": "H",
+        "x": 0,
+        "y": -48
+      },
+      {
+        "type": "H",
+        "x": 0,
+        "y": 48
+      },
+      {
+        "type": "H",
+        "x": -110,
+        "y": -52
+      },
+      {
+        "type": "H",
+        "x": -110,
+        "y": 52
+      },
+      {
+        "type": "H",
+        "x": 110,
+        "y": -52
+      },
+      {
+        "type": "H",
+        "x": 110,
+        "y": 52
+      }
+    ],
+    "bonds": [
+      {
+        "a": 0,
+        "b": 2,
+        "order": "bridge"
+      },
+      {
+        "a": 1,
+        "b": 2,
+        "order": "bridge"
+      },
+      {
+        "a": 0,
+        "b": 3,
+        "order": "bridge"
+      },
+      {
+        "a": 1,
+        "b": 3,
+        "order": "bridge"
+      },
+      {
+        "a": 0,
+        "b": 4
+      },
+      {
+        "a": 0,
+        "b": 5
+      },
+      {
+        "a": 1,
+        "b": 6
+      },
+      {
+        "a": 1,
+        "b": 7
+      }
+    ],
+    "lonePairs": {},
+    "prompt": "Would you like to make diborane (B₂H₆)?"
+  },
+  {
+    "type": "borohydride",
+    "formula": "BH4-",
+    "displayLabel": "BH₄⁻",
+    "composition": {
+      "B": 1,
+      "H": 4
+    },
+    "layout": [
+      {
+        "type": "B",
+        "x": 0,
+        "y": 0
+      },
+      {
+        "type": "H",
+        "x": -42,
+        "y": -42
+      },
+      {
+        "type": "H",
+        "x": 42,
+        "y": -42
+      },
+      {
+        "type": "H",
+        "x": -42,
+        "y": 42
+      },
+      {
+        "type": "H",
+        "x": 42,
+        "y": 42
+      }
+    ],
+    "bonds": [
+      {
+        "a": 0,
+        "b": 1
+      },
+      {
+        "a": 0,
+        "b": 2
+      },
+      {
+        "a": 0,
+        "b": 3
+      },
+      {
+        "a": 0,
+        "b": 4
+      }
+    ],
+    "lonePairs": {},
+    "charge": -1,
+    "prompt": "Form borohydride (BH₄⁻)? This ion carries a −1 charge!"
   }
 ];
 
@@ -4132,6 +4280,25 @@ export const EXTRA_MOLECULE_INFO = {
     "fact": "Sand and quartz: every Si bonds to four O, and every O bridges two Si.",
     "angleSource": "Quartz (exp.)",
     "note": "Network solid: no separate SiO₂ molecules exist. This is one formula unit; the faint open bonds continue into the 3-D network."
+  },
+  "B2H6": {
+    "name": "Diborane",
+    "molarMass": "27.67",
+    "geometry": "Two bridged BH₂ units",
+    "bondAngle": "121° (Ht–B–Ht), 83° (B–Hb–B)",
+    "polarity": "Nonpolar",
+    "fact": "Boron has too few electrons for ordinary bonds, so two hydrogens bridge the borons.",
+    "angleSource": "Electron diffraction (exp.)",
+    "note": "Each B–H–B bridge is a three-centre two-electron bond: two electrons hold three atoms together, drawn as two dashed half-bonds (in Lewis view, one electron per half)."
+  },
+  "BH4-": {
+    "name": "Borohydride",
+    "molarMass": "14.84",
+    "geometry": "Tetrahedral",
+    "bondAngle": "109.5°",
+    "polarity": "−1 anion",
+    "fact": "As sodium borohydride (NaBH₄) it is a common reducing agent in labs.",
+    "angleSource": "Td symmetry"
   }
 };
 
@@ -4445,6 +4612,16 @@ export const EXTRA_DISCOVERABLE_MOLECULES = [
     "formula": "SiO2",
     "label": "SiO₂ — Silicon dioxide (quartz)",
     "group": "Network solids"
+  },
+  {
+    "formula": "B2H6",
+    "label": "B₂H₆ — Diborane",
+    "group": "Covalent molecules"
+  },
+  {
+    "formula": "BH4-",
+    "label": "BH₄⁻ — Borohydride",
+    "group": "Ions"
   }
 ];
 

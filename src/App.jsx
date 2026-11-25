@@ -82,6 +82,10 @@ const COVALENT_BOND_ORDER = {
   // Delocalized bond in a resonance hybrid (e.g. SO2, O3): order 1.5,
   // drawn as one full bond plus a dashed partial bond.
   resonance: 1.5,
+  // Half of a three-centre two-electron bridge (B–H–B in B2H6): two
+  // electrons hold three atoms, so each B–H half is order ½. Drawn as a
+  // dashed half-bond.
+  bridge: 0.5,
 };
 
 // Neon accent color per atom type — used for grab ripples, auras, and bond gradients.
@@ -5033,6 +5037,15 @@ function App() {
             context.shadowColor = "rgba(147, 197, 253, 0.6)";
             context.shadowBlur = 6;
 
+            // Bridge half-bond (3-centre 2-electron): one electron per half.
+            if (order < 1) {
+              context.beginPath();
+              context.arc(midX, midY, dotRadius, 0, Math.PI * 2);
+              context.fill();
+              context.restore();
+              return;
+            }
+
             // Fractional order (resonance, e.g. 1.5): whole columns are filled
             // pairs; the delocalized partial pair renders as hollow dots.
             const wholeColumns = Math.floor(order);
@@ -5164,6 +5177,14 @@ function App() {
           ) => {
             if (lewisViewRef.current && atomTypePair) {
               drawLewisBondPairs(startPosition, endPosition, order);
+              return;
+            }
+
+            if (order < 1) {
+              context.save();
+              context.setLineDash([4 * getVisualScale(), 4 * getVisualScale()]);
+              drawBondStick(startPosition, endPosition, trimScale, 0, atomTypePair);
+              context.restore();
               return;
             }
 
@@ -10199,7 +10220,7 @@ function App() {
               {
                 heading: "Molecular geometry (VSEPR)",
                 body:
-                  "Molecules snap into shapes based on VSEPR theory: water is bent at 104.5°, ammonia is trigonal pyramidal (107°), methane tetrahedral (109.5°), CO₂ linear, H₂S bent at 92°. Lone pairs are drawn from each species' Lewis structure — including chloride's full octet in ionic compounds. SO₂ and O₃ are drawn as resonance hybrids: instead of one double and one single bond, both bonds render identically as order 1½ (a solid stick plus a dashed delocalized stick) — matching the real molecules, whose two bonds are exactly the same length. Expanded-octet molecules show the shapes usually seen only in textbooks: see-saw SF₄, T-shaped ClF₃, square planar XeF₄, square pyramidal IF₅, trigonal bipyramidal PCl₅, octahedral SF₆ and pentagonal bipyramidal IF₇, drawn as 2-D views of the 3-D shape. Isomers such as ethanol and dimethyl ether (both C₂H₆O) are told apart by which atoms are bonded to which. Radicals (NO, NO₂) show their unpaired electron as a single dot, and SiO₂ is shown as one formula unit of a network solid, with faint open bonds where the quartz network continues.",
+                  "Molecules snap into shapes based on VSEPR theory: water is bent at 104.5°, ammonia is trigonal pyramidal (107°), methane tetrahedral (109.5°), CO₂ linear, H₂S bent at 92°. Lone pairs are drawn from each species' Lewis structure — including chloride's full octet in ionic compounds. SO₂ and O₃ are drawn as resonance hybrids: instead of one double and one single bond, both bonds render identically as order 1½ (a solid stick plus a dashed delocalized stick) — matching the real molecules, whose two bonds are exactly the same length. Expanded-octet molecules show the shapes usually seen only in textbooks: see-saw SF₄, T-shaped ClF₃, square planar XeF₄, square pyramidal IF₅, trigonal bipyramidal PCl₅, octahedral SF₆ and pentagonal bipyramidal IF₇, drawn as 2-D views of the 3-D shape. Isomers such as ethanol and dimethyl ether (both C₂H₆O) are told apart by which atoms are bonded to which. Radicals (NO, NO₂) show their unpaired electron as a single dot, and SiO₂ is shown as one formula unit of a network solid, with faint open bonds where the quartz network continues. Diborane (B₂H₆) has too few electrons for ordinary bonds: each B–H–B bridge is a three-centre two-electron bond, drawn as two dashed half-bonds (one electron per half in Lewis view).",
               },
               {
                 heading: "Bond polarity",

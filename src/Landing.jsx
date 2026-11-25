@@ -3,7 +3,7 @@ import "./landing.css";
 
 const TITLE_WORDS = ["Full", "Chem", "AR", "Lab"];
 const TAGLINE_WORDS = ["Build", "real", "chemistry", "with", "your", "hands."];
-const STATS = ["89 molecules & compounds", "6 reactions", "Hand-tracked AR"];
+const STATS = ["91 molecules & compounds", "6 reactions", "Hand-tracked AR"];
 
 // Element colors (CPK-inspired neon), matching the atoms inside the lab.
 const ATOM_COLORS = ["#e8f6ff", "#ff4d4d", "#aeb6c2", "#4d7dff", "#ffe14d", "#3dff8f", "#67e8f9"];
